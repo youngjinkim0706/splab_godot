@@ -80,6 +80,13 @@ public:
 		RENDER_SEPARATE_THREAD
 	};
 
+	/* yjkim remote rendering enum*/
+	enum RemoteRendererMode {
+		RENDER_CLOUD,
+		RENDER_EDGE,
+		RENDER_LOCAL
+	};
+
 protected:
 	friend class Main;
 	// Needed by tests to setup command-line args.

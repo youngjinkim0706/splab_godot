@@ -72,6 +72,8 @@
 #include "servers/register_server_types.h"
 #include "servers/rendering/rendering_server_default.h"
 #include "servers/rendering/rendering_server_wrap_mt.h"
+#include "servers/rendering/rendering_server_wrap_local.h"
+#include "servers/rendering/rendering_server_wrap_remote.h"
 #include "servers/text_server.h"
 #include "servers/xr_server.h"
 
@@ -579,6 +581,8 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 #endif
 	bool use_vsync = false;
 
+	int remote_render = -1; // yjkim
+
 	packed_data = PackedData::get_singleton();
 	if (!packed_data) {
 		packed_data = memnew(PackedData);
@@ -614,7 +618,20 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			show_help = true;
 			goto error;
 
-		} else if (I->get() == "--version") {
+		} else if (I->get() == "--remote-render") { // yjkim
+			if (I->next()) {
+				if (I->next()->get() == "edge") {
+					remote_render = OS::RENDER_EDGE;
+				} else if (I->next()->get() == "cloud") {
+					remote_render = OS::RENDER_CLOUD;
+				} else {
+					remote_render = OS::RENDER_LOCAL;
+				}
+
+				N = I->next()->next();
+			}
+		}
+		else if (I->get() == "--version") {
 			print_line(get_full_version_string());
 			goto error;
 
@@ -1070,6 +1087,8 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 
 	// Initialize user data dir.
 	OS::get_singleton()->ensure_user_data_dir();
+
+	GLOBAL_DEF("splab/render_mode", remote_render); // yjkim
 
 	GLOBAL_DEF("memory/limits/multithreaded_server/rid_pool_prealloc", 60);
 	ProjectSettings::get_singleton()->set_custom_property_info("memory/limits/multithreaded_server/rid_pool_prealloc",
@@ -1569,13 +1588,24 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 
 	/* Initialize Visual Server */
 
-	rendering_server = memnew(RenderingServerDefault);
-	if (OS::get_singleton()->get_render_thread_mode() != OS::RENDER_THREAD_UNSAFE) {
-		rendering_server = memnew(RenderingServerWrapMT(rendering_server,
-				OS::get_singleton()->get_render_thread_mode() ==
-						OS::RENDER_SEPARATE_THREAD));
-	}
+	// rendering_server = memnew(RenderingServerDefault);
 
+	// yjkim
+	if (OS::RENDER_EDGE == int(GLOBAL_GET("splab/render_mode"))) {
+		rendering_server = memnew(RenderingServerWrapRemote);
+	} else if (OS::RENDER_CLOUD == int(GLOBAL_GET("splab/render_mode"))) {
+		rendering_server = memnew(RenderingServerWrapLocal);
+	} else {
+		rendering_server = memnew(RenderingServerDefault);
+		if (OS::get_singleton()->get_render_thread_mode() != OS::RENDER_THREAD_UNSAFE) {
+			rendering_server = memnew(RenderingServerWrapMT(rendering_server,
+					OS::get_singleton()->get_render_thread_mode() ==
+							OS::RENDER_SEPARATE_THREAD));
+		}
+	}
+	// rendering_server = memnew(RenderingServerWrapLocal);
+
+	
 	rendering_server->init();
 	rendering_server->set_render_loop_enabled(!disable_render_loop);
 
