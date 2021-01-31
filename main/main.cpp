@@ -1597,14 +1597,12 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 		rendering_server = memnew(RenderingServerWrapLocal);
 	} else {
 		rendering_server = memnew(RenderingServerDefault);
-		if (OS::get_singleton()->get_render_thread_mode() != OS::RENDER_THREAD_UNSAFE) {
-			rendering_server = memnew(RenderingServerWrapMT(rendering_server,
-					OS::get_singleton()->get_render_thread_mode() ==
-							OS::RENDER_SEPARATE_THREAD));
-		}
+		// if (OS::get_singleton()->get_render_thread_mode() != OS::RENDER_THREAD_UNSAFE) {
+		// 	rendering_server = memnew(RenderingServerWrapMT(rendering_server,
+		// 			OS::get_singleton()->get_render_thread_mode() ==
+		// 					OS::RENDER_SEPARATE_THREAD));
+		// }
 	}
-	// rendering_server = memnew(RenderingServerWrapLocal);
-
 	
 	rendering_server->init();
 	rendering_server->set_render_loop_enabled(!disable_render_loop);

@@ -8,8 +8,8 @@
 class RenderingServerWrapLocal : public RenderingServerDefault{
  //   virtual void draw(bool p_swap_buffers, double frame_step);
 	//virtual void init();
-	//RenderingServerWrapLocal();
-	//~RenderingServerWrapLocal();
+	RenderingServerWrapLocal();
+	~RenderingServerWrapLocal();
 };
 
 #endif

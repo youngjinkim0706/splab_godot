@@ -1,26 +1,24 @@
 #include "rendering_server_wrap_local.h"
 
+#include <grpc/grpc.h>
+#include <grpcpp/server.h>
+#include <grpcpp/server_builder.h>
+#include <grpcpp/server_context.h>
+#include <grpcpp/security/server_credentials.h>
 
-//void RenderingServerWrapLocal::draw(bool p_swap_buffers, double frame_step) {
-//    print_line("function hooked up");
-//    // create rpc proxy to send data to client stub
-//    RenderingServerDefault::draw(p_swap_buffers, frame_step);
-//}
-//
-//RenderingServerWrapLocal::RenderingServerWrapLocal() {
-//	RSG::canvas = memnew(RendererCanvasCull);
-//	RSG::viewport = memnew(RendererViewport);
-//	RendererSceneCull *sr = memnew(RendererSceneCull);
-//	RSG::scene = sr;
-//	RSG::rasterizer = RendererCompositor::create();
-//	RSG::storage = RSG::rasterizer->get_storage();
-//	RSG::canvas_render = RSG::rasterizer->get_canvas();
-//	sr->set_scene_render(RSG::rasterizer->get_scene());
-//
-//	frame_profile_frame = 0;
-//
-//	for (int i = 0; i < 4; i++) {
-//		black_margin[i] = 0;
-//		black_image[i] = RID();
-//	}
-//}
+// #include "splab_grpc_service.pb.h"
+#include "modules/splab/splab_grpc_service.h"
+
+RenderingServerWrapLocal::RenderingServerWrapLocal() {
+	std::string server_address("0.0.0.0:50051");
+    SPLabRenderingServerImpl::SPLabRenderingServerImpl service();
+
+    grpc::ServerBuilder builder;
+    builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+    builder.RegisterService(&service);
+    std::unique_ptr<Server> server(builder.BuildAndStart());
+    std::cout << "Server listening on " << server_address << std::endl;
+    server->Wait();
+}
+
+RenderingServerWrapLocal::init(){}
