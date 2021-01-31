@@ -1,9 +1,20 @@
 #!/usr/bin/env python
+import platform
+
+current_os = platform.system()
 
 Import("env")
 
 env.add_source_files(env.servers_sources, "*.cpp")
 
-env.Append(CPPPATH=["/usr/local/include"]) # yjkim
+
+if current_os == "Windows":
+    vcpkg_root = 'C:\\Users\\play1\\Documents\\GitHub\\vcpkg\\installed\\x86-windows' # change at other systems
+    vcpkg_include = "{}\\include".format(vcpkg_root)
+    env.Append(CPPPATH=[vcpkg_include]) # yjkim
+
+else: # mac or linux
+    env.Append(CPPPATH=["/usr/local/include"]) # yjkim
 
 SConscript("renderer_rd/SCsub")
+
