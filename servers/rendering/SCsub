@@ -17,4 +17,5 @@ else: # mac or linux
     env.Append(CPPPATH=["/usr/local/include"]) # yjkim
 
 SConscript("renderer_rd/SCsub")
+SConscript("splab/SCsub")
 

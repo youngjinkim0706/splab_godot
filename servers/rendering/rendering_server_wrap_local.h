@@ -4,12 +4,10 @@
 
 #include "rendering_server_default.h"
 
-
-class RenderingServerWrapLocal : public RenderingServerDefault{
- //   virtual void draw(bool p_swap_buffers, double frame_step);
-	//virtual void init();
-	RenderingServerWrapLocal();
-	~RenderingServerWrapLocal();
+class RenderingServerWrapLocal : public RenderingServerDefault{	
+	public:
+		RenderingServerWrapLocal();
+		~RenderingServerWrapLocal(){};
 };
 
 #endif

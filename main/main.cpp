@@ -1594,6 +1594,7 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 	if (OS::RENDER_EDGE == int(GLOBAL_GET("splab/render_mode"))) {
 		rendering_server = memnew(RenderingServerWrapRemote);
 	} else if (OS::RENDER_CLOUD == int(GLOBAL_GET("splab/render_mode"))) {
+		print_line("local server mode");
 		rendering_server = memnew(RenderingServerWrapLocal);
 	} else {
 		rendering_server = memnew(RenderingServerDefault);

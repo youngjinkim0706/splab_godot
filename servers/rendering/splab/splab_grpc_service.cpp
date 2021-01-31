@@ -11,6 +11,3 @@ void SPLabRenderingServerImpl::init_server(){ // init remote rendering server
      
 }
 
-SPLabRenderingServerImpl(){
-
-}
