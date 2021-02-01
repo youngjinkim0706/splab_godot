@@ -22,7 +22,7 @@
 namespace splab_grpc_service {
 
 static const char* SPLabRenderingServer_method_names[] = {
-  "/splab_grpc_service.SPLabRenderingServer/initServer",
+  "/splab_grpc_service.SPLabRenderingServer/SayHello",
 };
 
 std::unique_ptr< SPLabRenderingServer::Stub> SPLabRenderingServer::NewStub(const std::shared_ptr< ::grpc::ChannelInterface>& channel, const ::grpc::StubOptions& options) {
@@ -32,28 +32,28 @@ std::unique_ptr< SPLabRenderingServer::Stub> SPLabRenderingServer::NewStub(const
 }
 
 SPLabRenderingServer::Stub::Stub(const std::shared_ptr< ::grpc::ChannelInterface>& channel)
-  : channel_(channel), rpcmethod_initServer_(SPLabRenderingServer_method_names[0], ::grpc::internal::RpcMethod::NORMAL_RPC, channel)
+  : channel_(channel), rpcmethod_SayHello_(SPLabRenderingServer_method_names[0], ::grpc::internal::RpcMethod::NORMAL_RPC, channel)
   {}
 
-::grpc::Status SPLabRenderingServer::Stub::initServer(::grpc::ClientContext* context, const ::google::protobuf::Empty& request, ::google::protobuf::Empty* response) {
-  return ::grpc::internal::BlockingUnaryCall< ::google::protobuf::Empty, ::google::protobuf::Empty, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), rpcmethod_initServer_, context, request, response);
+::grpc::Status SPLabRenderingServer::Stub::SayHello(::grpc::ClientContext* context, const ::splab_grpc_service::HelloRequest& request, ::splab_grpc_service::HelloReply* response) {
+  return ::grpc::internal::BlockingUnaryCall< ::splab_grpc_service::HelloRequest, ::splab_grpc_service::HelloReply, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), rpcmethod_SayHello_, context, request, response);
 }
 
-void SPLabRenderingServer::Stub::experimental_async::initServer(::grpc::ClientContext* context, const ::google::protobuf::Empty* request, ::google::protobuf::Empty* response, std::function<void(::grpc::Status)> f) {
-  ::grpc::internal::CallbackUnaryCall< ::google::protobuf::Empty, ::google::protobuf::Empty, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_initServer_, context, request, response, std::move(f));
+void SPLabRenderingServer::Stub::experimental_async::SayHello(::grpc::ClientContext* context, const ::splab_grpc_service::HelloRequest* request, ::splab_grpc_service::HelloReply* response, std::function<void(::grpc::Status)> f) {
+  ::grpc::internal::CallbackUnaryCall< ::splab_grpc_service::HelloRequest, ::splab_grpc_service::HelloReply, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_SayHello_, context, request, response, std::move(f));
 }
 
-void SPLabRenderingServer::Stub::experimental_async::initServer(::grpc::ClientContext* context, const ::google::protobuf::Empty* request, ::google::protobuf::Empty* response, ::grpc::experimental::ClientUnaryReactor* reactor) {
-  ::grpc::internal::ClientCallbackUnaryFactory::Create< ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_initServer_, context, request, response, reactor);
+void SPLabRenderingServer::Stub::experimental_async::SayHello(::grpc::ClientContext* context, const ::splab_grpc_service::HelloRequest* request, ::splab_grpc_service::HelloReply* response, ::grpc::experimental::ClientUnaryReactor* reactor) {
+  ::grpc::internal::ClientCallbackUnaryFactory::Create< ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(stub_->channel_.get(), stub_->rpcmethod_SayHello_, context, request, response, reactor);
 }
 
-::grpc::ClientAsyncResponseReader< ::google::protobuf::Empty>* SPLabRenderingServer::Stub::PrepareAsyncinitServerRaw(::grpc::ClientContext* context, const ::google::protobuf::Empty& request, ::grpc::CompletionQueue* cq) {
-  return ::grpc::internal::ClientAsyncResponseReaderHelper::Create< ::google::protobuf::Empty, ::google::protobuf::Empty, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), cq, rpcmethod_initServer_, context, request);
+::grpc::ClientAsyncResponseReader< ::splab_grpc_service::HelloReply>* SPLabRenderingServer::Stub::PrepareAsyncSayHelloRaw(::grpc::ClientContext* context, const ::splab_grpc_service::HelloRequest& request, ::grpc::CompletionQueue* cq) {
+  return ::grpc::internal::ClientAsyncResponseReaderHelper::Create< ::splab_grpc_service::HelloReply, ::splab_grpc_service::HelloRequest, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(channel_.get(), cq, rpcmethod_SayHello_, context, request);
 }
 
-::grpc::ClientAsyncResponseReader< ::google::protobuf::Empty>* SPLabRenderingServer::Stub::AsyncinitServerRaw(::grpc::ClientContext* context, const ::google::protobuf::Empty& request, ::grpc::CompletionQueue* cq) {
+::grpc::ClientAsyncResponseReader< ::splab_grpc_service::HelloReply>* SPLabRenderingServer::Stub::AsyncSayHelloRaw(::grpc::ClientContext* context, const ::splab_grpc_service::HelloRequest& request, ::grpc::CompletionQueue* cq) {
   auto* result =
-    this->PrepareAsyncinitServerRaw(context, request, cq);
+    this->PrepareAsyncSayHelloRaw(context, request, cq);
   result->StartCall();
   return result;
 }
@@ -62,19 +62,19 @@ SPLabRenderingServer::Service::Service() {
   AddMethod(new ::grpc::internal::RpcServiceMethod(
       SPLabRenderingServer_method_names[0],
       ::grpc::internal::RpcMethod::NORMAL_RPC,
-      new ::grpc::internal::RpcMethodHandler< SPLabRenderingServer::Service, ::google::protobuf::Empty, ::google::protobuf::Empty, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(
+      new ::grpc::internal::RpcMethodHandler< SPLabRenderingServer::Service, ::splab_grpc_service::HelloRequest, ::splab_grpc_service::HelloReply, ::grpc::protobuf::MessageLite, ::grpc::protobuf::MessageLite>(
           [](SPLabRenderingServer::Service* service,
              ::grpc::ServerContext* ctx,
-             const ::google::protobuf::Empty* req,
-             ::google::protobuf::Empty* resp) {
-               return service->initServer(ctx, req, resp);
+             const ::splab_grpc_service::HelloRequest* req,
+             ::splab_grpc_service::HelloReply* resp) {
+               return service->SayHello(ctx, req, resp);
              }, this)));
 }
 
 SPLabRenderingServer::Service::~Service() {
 }
 
-::grpc::Status SPLabRenderingServer::Service::initServer(::grpc::ServerContext* context, const ::google::protobuf::Empty* request, ::google::protobuf::Empty* response) {
+::grpc::Status SPLabRenderingServer::Service::SayHello(::grpc::ServerContext* context, const ::splab_grpc_service::HelloRequest* request, ::splab_grpc_service::HelloReply* response) {
   (void) context;
   (void) request;
   (void) response;

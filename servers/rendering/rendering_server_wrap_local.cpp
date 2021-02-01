@@ -9,13 +9,4 @@
 #include "splab/splab_grpc_service.h"
 
 RenderingServerWrapLocal::RenderingServerWrapLocal() {
-    std::string server_address("0.0.0.0:50051");
-    SPLabRenderingServerImpl service;
-    grpc::ServerBuilder builder;
-
-    builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-    builder.RegisterService(&service);
-    std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
-    print_line(" server is running");
-    server->Wait();
 }
