@@ -1,12 +1,17 @@
 #include "rendering_server_wrap_local.h"
+#include <string>
 
-#include <grpc/grpc.h>
-#include <grpcpp/server.h>
-#include <grpcpp/server_builder.h>
-#include <grpcpp/server_context.h>
-#include <grpcpp/security/server_credentials.h>
 
-#include "splab/splab_grpc_service.h"
+void RenderingServerWrapLocal::init(){
+    // rpc server의 init()함수를 호출해서 edge의 rendering_server->init() 호출
 
-RenderingServerWrapLocal::RenderingServerWrapLocal() {
+    bool status = rpc_client.init_rendering_server();
+    if (status){
+        print_line("rpc succeeded");
+    }else{
+        print_line("rpc is failed");
+    }
+    
+    // cloud의 init() 실행. 테스트용
+    RenderingServerDefault::init();
 }

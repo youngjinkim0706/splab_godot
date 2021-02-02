@@ -11,12 +11,13 @@ class RenderingServerWrapRemote : public RenderingServerDefault {
 	public:
 	void run_rpc_server();
 	
-	RenderingServerWrapRemote(){ // grpc server
-		_rpc_server_thread = std::thread(&RenderingServerWrapRemote::run_rpc_server, this); //init 
+	RenderingServerWrapRemote(): RenderingServerDefault(){
+		    _rpc_server_thread = std::thread(&RenderingServerWrapRemote::run_rpc_server, this); //init 
 	};
 	~RenderingServerWrapRemote(){
-
 	};
+	virtual void draw(bool p_swap_buffers, double frame_step);
+	virtual void init();
 	
 
 };

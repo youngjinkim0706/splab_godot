@@ -2,7 +2,6 @@
 
 #include <grpcpp/grpcpp.h>
 #include "splab/splab_grpc_service.h"
-
 void RenderingServerWrapRemote::run_rpc_server(){
     //initiate grpc server for rpc call
     std::string server_address("0.0.0.0:50051");
@@ -15,4 +14,13 @@ void RenderingServerWrapRemote::run_rpc_server(){
     
     print_line("rpc server start");
     server->Wait();
+}
+
+void RenderingServerWrapRemote::init(){
+    print_line("remote server");
+}
+
+
+void RenderingServerWrapRemote::draw(bool p_swap_buffers, double frame_step){
+    
 }

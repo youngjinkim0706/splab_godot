@@ -15,6 +15,8 @@ if current_os == "Windows":
 
 else: # mac or linux
     env.Append(CPPPATH=["/usr/local/include"]) # yjkim
+    env.Append(LIBPATH=['/usr/local/lib'])
+    env.Append(LIBS=["protobuf", "grpc", "grpc++"])
 
 SConscript("renderer_rd/SCsub")
 SConscript("splab/SCsub")

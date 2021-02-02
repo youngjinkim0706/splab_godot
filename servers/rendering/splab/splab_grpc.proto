@@ -7,15 +7,6 @@ package splab_grpc_service;
 
 service SPLabRenderingServer{
     // rpc initServer(google.protobuf.Empty) returns (google.protobuf.Empty) {}
-    rpc SayHello (HelloRequest) returns (HelloReply){}
-}
-
-// for test_say_hello
-message HelloRequest {
-  string name = 1;
-}
-
-// The response message containing the greetings
-message HelloReply {
-  string message = 1;
+    // rpc SayHello (HelloRequest) returns (HelloReply){}
+    rpc init_rendering_server(google.protobuf.Empty) returns (google.protobuf.Empty) {}
 }
