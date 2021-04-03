@@ -170,6 +170,13 @@ Copyright: 2013-2020, David Herberth
  2007-2020 The Khronos Group Inc.
 License: Expat
 
+
+Files: ./thirdparty/glremote/
+Comment: gl-remote
+Copyright: 2021, Youngjin Kim
+ 2007-2020 The Khronos Group Inc.
+License: None
+
 Files: ./thirdparty/jpeg-compressor/
 Comment: jpeg-compressor
 Copyright: 2012, Rich Geldreich

@@ -68,10 +68,10 @@
 #ifndef IPHONE_ENABLED
 // We include EGL below to get debug callback on GLES2 platforms,
 // but EGL is not available on iOS.
-#define CAN_DEBUG
+// #define CAN_DEBUG
 #endif
 
-#if !defined(GLES_OVER_GL) && defined(CAN_DEBUG)
+#if !defined(GLES_OVER_GL) && defined(CAN_DEBUG) && !defined(GLREMOTE)
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2platform.h>

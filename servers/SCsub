@@ -12,6 +12,9 @@ SConscript("physics_2d/SCsub")
 SConscript("visual/SCsub")
 SConscript("audio/SCsub")
 
+env.Append(CPPPATH=["/usr/include"])
+env.Append(LIBPATH=["/usr/lib"])
+
 lib = env.add_library("servers", env.servers_sources)
 
 env.Prepend(LIBS=[lib])

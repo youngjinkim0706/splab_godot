@@ -38,7 +38,9 @@
 
 #include "platform_config.h"
 #ifndef GLES3_INCLUDE_H
-#include <GLES3/gl3.h>
+// #include <GLES3/gl3.h>
+#include "thirdparty/glremote/glremote/glremote.h"
+
 #else
 #include GLES3_INCLUDE_H
 #endif

@@ -307,7 +307,6 @@ ShaderGLES3::Version *ShaderGLES3::get_current_version() {
 	v.vert_id = glCreateShader(GL_VERTEX_SHADER);
 	glShaderSource(v.vert_id, strings.size(), &strings[0], NULL);
 	glCompileShader(v.vert_id);
-
 	GLint status;
 
 	glGetShaderiv(v.vert_id, GL_COMPILE_STATUS, &status);
@@ -402,6 +401,7 @@ ShaderGLES3::Version *ShaderGLES3::get_current_version() {
 	v.frag_id = glCreateShader(GL_FRAGMENT_SHADER);
 	glShaderSource(v.frag_id, strings.size(), &strings[0], NULL);
 	glCompileShader(v.frag_id);
+	print_line("frag" + itos(v.frag_id)); // yjkim
 
 	glGetShaderiv(v.frag_id, GL_COMPILE_STATUS, &status);
 	if (status == GL_FALSE) {
