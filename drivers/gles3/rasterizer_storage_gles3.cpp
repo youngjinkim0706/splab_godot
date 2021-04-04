@@ -8349,6 +8349,7 @@ void RasterizerStorageGLES3::initialize() {
 		glGetIntegerv(GL_NUM_EXTENSIONS, &max_extensions);
 		for (int i = 0; i < max_extensions; i++) {
 			const GLubyte *s = glGetStringi(GL_EXTENSIONS, i);
+			// print_line();
 			if (!s)
 				break;
 			config.extensions.insert((const char *)s);

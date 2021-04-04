@@ -1,6 +1,7 @@
 // #include <tbb/concurrent_queue.h>
 #include <iostream>
 #include <string>
+#include <type_traits>
 #include <zmq.hpp>
 // #include <GL/glew.h>
 #include "gl_commands.h"
@@ -9,6 +10,37 @@
 #define GL_SET_COMMAND(PTR, FUNCNAME)                                                \
 	gl_##FUNCNAME##_t *PTR = (gl_##FUNCNAME##_t *)malloc(sizeof(gl_##FUNCNAME##_t)); \
 	PTR->cmd = GLSC_##FUNCNAME
+
+GLint global_pack_alignment = 4;
+GLint global_unpack_alignment = 4;
+
+std::string send_data_get_string(unsigned int cmd, void *cmd_data, int size) {
+	zmq::context_t ctx;
+	zmq::socket_t sock2(ctx, zmq::socket_type::req);
+
+	sock2.connect("tcp://127.0.0.1:12345");
+
+	gl_command_t c = {
+		cmd, size
+	};
+	zmq::message_t msg(sizeof(c));
+	switch (cmd) {
+		case GLSC_glGetStringi:
+		default: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::none);
+
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+	}
+	return msg.to_string();
+}
 
 void *send_data(unsigned int cmd, void *cmd_data, int size) {
 	zmq::context_t ctx;
@@ -22,6 +54,71 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 	zmq::message_t msg(sizeof(c));
 
 	switch (cmd) {
+		case GLSC_glClearBufferfv: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			// gl_command_t* cc = (gl_command_t *)msg.data();
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glClearBufferfv_t *more_data = (gl_glClearBufferfv_t *)cmd_data;
+
+			zmq::message_t buffer_data(sizeof(GLfloat) * 4); //
+			memcpy(buffer_data.data(), more_data->value, sizeof(GLfloat) * 4);
+			sock2.send(buffer_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+		case GLSC_glDeleteFramebuffers: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			// gl_command_t* cc = (gl_command_t *)msg.data();
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glDeleteFramebuffers_t *more_data = (gl_glDeleteFramebuffers_t *)cmd_data;
+			zmq::message_t framebuffers_data(sizeof(GLuint) * more_data->n);
+			memcpy(framebuffers_data.data(), more_data->framebuffers, sizeof(GLuint) * more_data->n);
+			sock2.send(framebuffers_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+		case GLSC_glDeleteRenderbuffers: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			// gl_command_t* cc = (gl_command_t *)msg.data();
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glDeleteRenderbuffers_t *more_data = (gl_glDeleteRenderbuffers_t *)cmd_data;
+			zmq::message_t renderbuffers_data(sizeof(GLuint) * more_data->n);
+			memcpy(renderbuffers_data.data(), more_data->renderbuffers, sizeof(GLuint) * more_data->n);
+			sock2.send(renderbuffers_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+		case GLSC_glDeleteTextures: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			// gl_command_t* cc = (gl_command_t *)msg.data();
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glDeleteTextures_t *more_data = (gl_glDeleteTextures_t *)cmd_data;
+			zmq::message_t textures_data(sizeof(GLuint) * more_data->n);
+			memcpy(textures_data.data(), more_data->textures, sizeof(GLuint) * more_data->n);
+			sock2.send(textures_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
 		case GLSC_glShaderSource: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			// gl_command_t* cc = (gl_command_t *)msg.data();
@@ -105,6 +202,24 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			sock2.recv(msg, zmq::recv_flags::none);
 			break;
 		}
+		case GLSC_glVertexAttrib4fv: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glVertexAttrib4fv_t *more_data = (gl_glVertexAttrib4fv_t *)cmd_data;
+			zmq::message_t buffer_data;
+			if (more_data->v != NULL) {
+				buffer_data.rebuild(sizeof(GLfloat) * 4);
+				memcpy(buffer_data.data(), more_data->v, sizeof(GLfloat) * 4);
+			}
+			sock2.send(buffer_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
 		case GLSC_glUniform2fv: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			sock2.send(msg, zmq::send_flags::sndmore);
@@ -123,6 +238,23 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			sock2.recv(msg, zmq::recv_flags::none);
 			break;
 		}
+		case GLSC_glDrawElements: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glDrawElements_t *more_data = (gl_glDrawElements_t *)cmd_data;
+			zmq::message_t buffer_data;
+			buffer_data.rebuild(sizeof(int64_t));
+
+			memcpy(buffer_data.data(), &more_data->indices, sizeof(int64_t));
+			sock2.send(buffer_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
 		case GLSC_glGetAttribLocation: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			sock2.send(msg, zmq::send_flags::sndmore);
@@ -137,6 +269,68 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			sock2.send(buffer_data, zmq::send_flags::none);
 			sock2.recv(msg, zmq::recv_flags::none);
 
+			break;
+		}
+		case GLSC_glTexSubImage2D: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			// send others except pixel data;
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+			uint32_t pixelbytes, linebytes, datasize;
+
+			gl_glTexSubImage2D_t *more_data = (gl_glTexSubImage2D_t *)cmd_data;
+			switch (more_data->type) {
+				case GL_UNSIGNED_BYTE:
+					switch (more_data->format) {
+						case GL_ALPHA:
+							pixelbytes = 1;
+							break;
+						case GL_RGB:
+							pixelbytes = 3;
+							break;
+						case GL_RGBA:
+							pixelbytes = 4;
+							break;
+						case GL_LUMINANCE:
+							pixelbytes = 1;
+							break;
+						case GL_LUMINANCE_ALPHA:
+							pixelbytes = 2;
+							break;
+						default:
+							pixelbytes = 4;
+							break;
+					}
+					break;
+				case GL_UNSIGNED_SHORT_5_6_5:
+					pixelbytes = 2;
+					break;
+				case GL_UNSIGNED_SHORT_4_4_4_4:
+					pixelbytes = 2;
+					break;
+				case GL_UNSIGNED_SHORT_5_5_5_1:
+					pixelbytes = 2;
+					break;
+				default:
+					pixelbytes = 4;
+					break;
+			}
+			linebytes = (pixelbytes * more_data->width + global_unpack_alignment - 1) & (~(global_unpack_alignment - 1)); // 4 willbe replaced with pixelstorei param
+			datasize = linebytes * more_data->height;
+
+			zmq::message_t pixel_data;
+
+			if (more_data->pixels != NULL) {
+				pixel_data.rebuild(datasize);
+				// std::cout << "Not NULL" << std::endl;
+				memcpy(pixel_data.data(), more_data->pixels, datasize);
+			}
+
+			sock2.send(pixel_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
 			break;
 		}
 		case GLSC_glTexImage2D: {
@@ -186,7 +380,7 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 					pixelbytes = 4;
 					break;
 			}
-			linebytes = (pixelbytes * more_data->width + 4 - 1) & (~(4 - 1)); // 4 willbe replaced with pixelstorei param
+			linebytes = (pixelbytes * more_data->width + global_unpack_alignment - 1) & (~(global_unpack_alignment - 1)); // 4 willbe replaced with pixelstorei param
 			datasize = linebytes * more_data->height;
 
 			zmq::message_t pixel_data;
@@ -201,7 +395,68 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			sock2.recv(msg, zmq::recv_flags::none);
 			break;
 		}
+		case GLSC_glTexSubImage3D: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			sock2.send(msg, zmq::send_flags::sndmore);
 
+			// send others except pixel data;
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+			uint32_t pixelbytes, linebytes, datasize;
+
+			gl_glTexSubImage3D_t *more_data = (gl_glTexSubImage3D_t *)cmd_data;
+			switch (more_data->type) {
+				case GL_UNSIGNED_BYTE:
+					switch (more_data->format) {
+						case GL_ALPHA:
+							pixelbytes = 1;
+							break;
+						case GL_RGB:
+							pixelbytes = 3;
+							break;
+						case GL_RGBA:
+							pixelbytes = 4;
+							break;
+						case GL_LUMINANCE:
+							pixelbytes = 1;
+							break;
+						case GL_LUMINANCE_ALPHA:
+							pixelbytes = 2;
+							break;
+						default:
+							pixelbytes = 4;
+							break;
+					}
+					break;
+				case GL_UNSIGNED_SHORT_5_6_5:
+					pixelbytes = 2;
+					break;
+				case GL_UNSIGNED_SHORT_4_4_4_4:
+					pixelbytes = 2;
+					break;
+				case GL_UNSIGNED_SHORT_5_5_5_1:
+					pixelbytes = 2;
+					break;
+				default:
+					pixelbytes = 4;
+					break;
+			}
+			linebytes = (pixelbytes * more_data->width + global_unpack_alignment - 1) & (~(global_unpack_alignment - 1)); // 4 willbe replaced with pixelstorei param
+			datasize = linebytes * more_data->height * more_data->depth;
+
+			zmq::message_t pixel_data;
+
+			if (more_data->pixels != NULL) {
+				pixel_data.rebuild(datasize);
+				// std::cout << "Not NULL" << std::endl;
+				memcpy(pixel_data.data(), more_data->pixels, datasize);
+			}
+
+			sock2.send(pixel_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
 		case GLSC_glTexImage3D: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			sock2.send(msg, zmq::send_flags::sndmore);
@@ -249,7 +504,7 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 					pixelbytes = 4;
 					break;
 			}
-			linebytes = (pixelbytes * more_data->width + 4 - 1) & (~(4 - 1)); // 4 willbe replaced with pixelstorei param
+			linebytes = (pixelbytes * more_data->width + global_unpack_alignment - 1) & (~(global_unpack_alignment - 1)); // 4 willbe replaced with pixelstorei param
 			datasize = linebytes * more_data->height * more_data->depth;
 
 			zmq::message_t pixel_data;
@@ -286,11 +541,11 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			break;
 		}
 	}
+
 	return msg.data();
 }
 
 void glViewport(int x, int y, int width, int height) {
-	std::cout << width << "\t" << height << std::endl;
 	GL_SET_COMMAND(c, glViewport);
 	c->cmd = GLSC_glViewport;
 	c->x = x;
@@ -459,7 +714,7 @@ void glBufferData(unsigned int target, long int size, const void *data, unsigned
 	send_data(GLSC_glBufferData, (void *)c, sizeof(gl_glBufferData_t));
 }
 
-void glGenVertexArrays(int n, const unsigned int *arrays) {
+void glGenVertexArrays(GLsizei n, GLuint *arrays) {
 	GL_SET_COMMAND(c, glGenVertexArrays);
 	c->cmd = GLSC_glGenVertexArrays;
 	c->n = n;
@@ -687,14 +942,23 @@ void glBlendFunc(GLenum sfactor, GLenum dfactor) {
 	send_data(GLSC_glBlendFunc, (void *)c, sizeof(gl_glBlendFunc_t));
 }
 void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glBlendFuncSeparate);
+	c->cmd = GLSC_glBlendFuncSeparate;
+	c->sfactorRGB = sfactorRGB;
+	c->dfactorRGB = dfactorRGB;
+	c->sfactorAlpha = sfactorAlpha;
+	c->dfactorAlpha = dfactorAlpha;
+	send_data(GLSC_glBlendFuncSeparate, (void *)c, sizeof(gl_glBlendFuncSeparate_t));
 }
 void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void *data) {
 	std::cout << __func__ << std::endl;
 }
 
 void glClearDepthf(GLfloat d) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glClearDepthf);
+	c->cmd = GLSC_glClearDepthf;
+	c->d = d;
+	send_data(GLSC_glClearDepthf, (void *)c, sizeof(gl_glClearDepthf_t));
 }
 void glClearStencil(GLint s) {
 	std::cout << __func__ << std::endl;
@@ -727,19 +991,31 @@ void glDeleteBuffers(GLsizei n, const GLuint *buffers) {
 	std::cout << __func__ << std::endl;
 }
 void glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDeleteFramebuffers);
+	c->cmd = GLSC_glDeleteFramebuffers;
+	c->n = n;
+	c->framebuffers = framebuffers;
+	send_data(GLSC_glDeleteFramebuffers, (void *)c, sizeof(gl_glDeleteFramebuffers_t));
 }
 void glDeleteProgram(GLuint program) {
 	std::cout << __func__ << std::endl;
 }
 void glDeleteRenderbuffers(GLsizei n, const GLuint *renderbuffers) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDeleteRenderbuffers);
+	c->cmd = GLSC_glDeleteRenderbuffers;
+	c->n = n;
+	c->renderbuffers = renderbuffers;
+	send_data(GLSC_glDeleteRenderbuffers, (void *)c, sizeof(gl_glDeleteRenderbuffers_t));
 }
 void glDeleteShader(GLuint shader) {
 	std::cout << __func__ << std::endl;
 }
 void glDeleteTextures(GLsizei n, const GLuint *textures) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDeleteTextures);
+	c->cmd = GLSC_glDeleteTextures;
+	c->n = n;
+	c->textures = textures;
+	send_data(GLSC_glDeleteTextures, (void *)c, sizeof(gl_glDeleteTextures_t));
 }
 void glDepthFunc(GLenum func) {
 	GL_SET_COMMAND(c, glDepthFunc);
@@ -760,10 +1036,19 @@ void glDetachShader(GLuint program, GLuint shader) {
 	std::cout << __func__ << std::endl;
 }
 void glDisableVertexAttribArray(GLuint index) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDisableVertexAttribArray);
+	c->cmd = GLSC_glDisableVertexAttribArray;
+	c->index = index;
+	send_data(GLSC_glDisableVertexAttribArray, (void *)c, sizeof(gl_glDisableVertexAttribArray_t));
 }
 void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDrawElements);
+	c->cmd = GLSC_glDrawElements;
+	c->mode = mode;
+	c->count = count;
+	c->type = type;
+	c->indices = indices;
+	send_data(GLSC_glDrawElements, (void *)c, sizeof(gl_glDrawElements_t));
 }
 void glEnable(GLenum cap) {
 	GL_SET_COMMAND(c, glEnable);
@@ -794,7 +1079,6 @@ void glFrontFace(GLenum mode) {
 	c->cmd = GLSC_glFrontFace;
 	c->mode = mode;
 	send_data(GLSC_glFrontFace, (void *)c, sizeof(gl_glFrontFace_t));
-	// std::cout << __func__ << std::endl;
 }
 void glGenRenderbuffers(GLsizei n, GLuint *renderbuffers) {
 	GL_SET_COMMAND(c, glGenRenderbuffers);
@@ -905,6 +1189,16 @@ void glLineWidth(GLfloat width) {
 	std::cout << __func__ << std::endl;
 }
 void glPixelStorei(GLenum pname, GLint param) {
+	switch (pname) {
+		case GL_PACK_ALIGNMENT:
+			global_pack_alignment = param;
+			break;
+		case GL_UNPACK_ALIGNMENT:
+			global_unpack_alignment = param;
+			break;
+		default:
+			break;
+	}
 	GL_SET_COMMAND(c, glPixelStorei);
 	c->cmd = GLSC_glPixelStorei;
 	c->pname = pname;
@@ -915,8 +1209,31 @@ void glPolygonOffset(GLfloat factor, GLfloat units) {
 	std::cout << __func__ << std::endl;
 }
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glReadPixels);
+	c->cmd = GLSC_glReadPixels;
+	c->x = x;
+	c->y = y;
+	c->width = width;
+	c->height = height;
+	c->format = format;
+	c->type = type;
+	void *data = send_data(GLSC_glReadPixels, (void *)c, sizeof(gl_glReadPixels_t));
+	size_t size = 0;
+	switch (type) {
+		case GL_UNSIGNED_BYTE: {
+			if (format == GL_RGBA) {
+				size = width * height * 4;
+			} else if (format == GL_RGB) {
+				size = width * height * 3;
+			}
+			break;
+		}
+		default:
+			break;
+	}
+	memcpy(pixels, data, size);
 }
+
 void glReleaseShaderCompiler(void) {
 	std::cout << __func__ << std::endl;
 }
@@ -969,10 +1286,25 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint *params) {
 	std::cout << __func__ << std::endl;
 }
 void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glTexSubImage2D);
+	c->cmd = GLSC_glTexSubImage2D;
+	c->target = target;
+	c->level = level;
+	c->xoffset = xoffset;
+	c->yoffset = yoffset;
+	c->width = width;
+	c->height = height;
+	c->format = format;
+	c->type = type;
+	c->pixels = pixels;
+	send_data(GLSC_glTexSubImage2D, (void *)c, sizeof(gl_glTexSubImage2D_t));
 }
 void glUniform1f(GLint location, GLfloat v0) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glUniform1f);
+	c->cmd = GLSC_glUniform1f;
+	c->location = location;
+	c->v0 = v0;
+	send_data(GLSC_glUniform1f, (void *)c, sizeof(gl_glUniform1f_t));
 }
 void glUniform1fv(GLint location, GLsizei count, const GLfloat *value) {
 	std::cout << __func__ << std::endl;
@@ -1080,17 +1412,38 @@ void glVertexAttrib4f(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w) 
 	send_data(GLSC_glVertexAttrib4f, (void *)c, sizeof(gl_glVertexAttrib4f_t));
 }
 void glVertexAttrib4fv(GLuint index, const GLfloat *v) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glVertexAttrib4fv);
+	c->cmd = GLSC_glVertexAttrib4fv;
+	c->index = index;
+	c->v = v;
+	send_data(GLSC_glVertexAttrib4fv, (void *)c, sizeof(gl_glVertexAttrib4fv_t));
 }
 //
 void glReadBuffer(GLenum src) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glReadBuffer);
+	c->cmd = GLSC_glReadBuffer;
+	c->src = src;
+	send_data(GLSC_glReadBuffer, (void *)c, sizeof(gl_glReadBuffer_t));
 }
 void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void *indices) {
 	std::cout << __func__ << std::endl;
 }
 void glTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const void *pixels) {
-	std::cout << __func__ << std::endl;
+
+	GL_SET_COMMAND(c, glTexSubImage3D);
+	c->cmd = GLSC_glTexSubImage3D;
+	c->target = target;
+	c->level = level;
+	c->xoffset = xoffset;
+	c->yoffset = yoffset;
+	c->zoffset = zoffset;
+	c->width = width;
+	c->height = height;
+	c->depth = depth;
+	c->format = format;
+	c->type = type;
+	c->pixels = pixels;
+	send_data(GLSC_glTexSubImage3D, (void *)c, sizeof(gl_glTexSubImage3D_t));
 }
 void glCopyTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height) {
 	std::cout << __func__ << std::endl;
@@ -1150,13 +1503,39 @@ void glUniformMatrix4x3fv(GLint location, GLsizei count, GLboolean transpose, co
 	std::cout << __func__ << std::endl;
 }
 void glBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glBlitFramebuffer);
+	c->cmd = GLSC_glBlitFramebuffer;
+	c->srcX0 = srcX0;
+	c->srcY0 = srcY0;
+	c->srcX1 = srcX1;
+	c->srcY1 = srcY1;
+	c->dstX0 = dstX0;
+	c->dstY0 = dstY0;
+	c->dstX1 = dstX1;
+	c->dstY1 = dstY1;
+	c->mask = mask;
+	c->filter = filter;
+	send_data(GLSC_glBlitFramebuffer, (void *)c, sizeof(gl_glBlitFramebuffer_t));
 }
 void glRenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glRenderbufferStorageMultisample);
+	c->cmd = GLSC_glRenderbufferStorageMultisample;
+	c->target = target;
+	c->samples = samples;
+	c->internalformat = internalformat;
+	c->width = width;
+	c->height = height;
+	send_data(GLSC_glRenderbufferStorageMultisample, (void *)c, sizeof(gl_glRenderbufferStorageMultisample_t));
 }
 void glFramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glFramebufferTextureLayer);
+	c->cmd = GLSC_glFramebufferTextureLayer;
+	c->target = target;
+	c->attachment = attachment;
+	c->texture = texture;
+	c->level = level;
+	c->layer = layer;
+	send_data(GLSC_glFramebufferTextureLayer, (void *)c, sizeof(gl_glFramebufferTextureLayer_t));
 }
 void *glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access) {
 	std::cout << __func__ << std::endl;
@@ -1221,6 +1600,8 @@ void glGetUniformuiv(GLuint program, GLint location, GLuint *params) {
 	std::cout << __func__ << std::endl;
 }
 GLint glGetFragDataLocation(GLuint program, const GLchar *name) {
+	std::cout << __func__ << std::endl;
+
 	return 0;
 }
 void glUniform1ui(GLint location, GLuint v0) {
@@ -1254,13 +1635,25 @@ void glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint *value) {
 	std::cout << __func__ << std::endl;
 }
 void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glClearBufferfv);
+	c->cmd = GLSC_glClearBufferfv;
+	c->buffer = buffer;
+	c->drawbuffer = drawbuffer;
+	c->value = value;
+	send_data(GLSC_glClearBufferfv, (void *)c, sizeof(gl_glClearBufferfv_t));
 }
 void glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
 	std::cout << __func__ << std::endl;
 }
 const GLubyte *glGetStringi(GLenum name, GLuint index) {
-	return 0;
+	GL_SET_COMMAND(c, glGetStringi);
+	c->cmd = GLSC_glGetStringi;
+	c->name = name;
+	c->index = index;
+	std::string ret = send_data_get_string(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t));
+	// const GLubyte *ret = reinterpret_cast<const GLubyte *>(send_data(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t)));
+	// std::cout << reinterpret_cast<const GLubyte *>(ret.c_str()) << std::endl;
+	return reinterpret_cast<const GLubyte *>(ret.c_str());
 }
 void glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
 	std::cout << __func__ << std::endl;

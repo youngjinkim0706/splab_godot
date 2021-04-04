@@ -67,6 +67,24 @@ enum GL_Server_Command {
 	GLSC_glBindRenderbuffer,
 	GLSC_glRenderbufferStorage,
 	GLSC_glFramebufferRenderbuffer,
+	GLSC_glTexSubImage3D,
+	GLSC_glDeleteTextures,
+	GLSC_glDeleteFramebuffers,
+	GLSC_glClearDepthf,
+	GLSC_glClearBufferfv,
+	GLSC_glGetStringi,
+	GLSC_glTexSubImage2D,
+	GLSC_glReadPixels,
+	GLSC_glBlendFuncSeparate,
+	GLSC_glDisableVertexAttribArray,
+	GLSC_glVertexAttrib4fv,
+	GLSC_glDrawElements,
+	GLSC_glReadBuffer,
+	GLSC_glBlitFramebuffer,
+	GLSC_glDeleteRenderbuffers,
+	GLSC_glUniform1f,
+	GLSC_glFramebufferTextureLayer,
+	GLSC_glRenderbufferStorageMultisample,
 };
 
 typedef struct {
@@ -105,6 +123,38 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
+	GLint srcX0;
+	GLint srcY0;
+	GLint srcX1;
+	GLint srcY1;
+	GLint dstX0;
+	GLint dstY0;
+	GLint dstX1;
+	GLint dstY1;
+	GLbitfield mask;
+	GLenum filter;
+} gl_glBlitFramebuffer_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum target;
+	GLenum attachment;
+	GLuint texture;
+	GLint level;
+	GLint layer;
+} gl_glFramebufferTextureLayer_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum target;
+	GLsizei samples;
+	GLenum internalformat;
+	GLsizei width;
+	GLsizei height;
+} gl_glRenderbufferStorageMultisample_t;
+
+typedef struct {
+	unsigned int cmd;
 	GLenum target;
 	GLint level;
 	GLint internalformat;
@@ -120,6 +170,30 @@ typedef struct {
 	unsigned int cmd;
 	GLenum target;
 	GLint level;
+	GLint xoffset;
+	GLint yoffset;
+	GLsizei width;
+	GLsizei height;
+	GLenum format;
+	GLenum type;
+	const void *pixels;
+} gl_glTexSubImage2D_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLint x;
+	GLint y;
+	GLsizei width;
+	GLsizei height;
+	GLenum format;
+	GLenum type;
+	void *pixels;
+} gl_glReadPixels_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum target;
+	GLint level;
 	GLint internalformat;
 	GLsizei width;
 	GLsizei height;
@@ -129,6 +203,51 @@ typedef struct {
 	GLenum type;
 	const void *pixels;
 } gl_glTexImage3D_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLsizei n;
+	const GLuint *textures;
+} gl_glDeleteTextures_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLsizei n;
+	const GLuint *framebuffers;
+} gl_glDeleteFramebuffers_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLsizei n;
+	const GLuint *renderbuffers;
+} gl_glDeleteRenderbuffers_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum buffer;
+	GLint drawbuffer;
+	const GLfloat *value;
+} gl_glClearBufferfv_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLfloat d;
+} gl_glClearDepthf_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum target;
+	GLint level;
+	GLint xoffset;
+	GLint yoffset;
+	GLint zoffset;
+	GLsizei width;
+	GLsizei height;
+	GLsizei depth;
+	GLenum format;
+	GLenum type;
+	const void *pixels;
+} gl_glTexSubImage3D_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -208,6 +327,17 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
+	GLenum name;
+	GLuint index;
+} gl_glGetStringi_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLuint index;
+} gl_glDisableVertexAttribArray_t;
+
+typedef struct {
+	unsigned int cmd;
 } gl_glFlush_t, gl_glCreateProgram_t, gl_glEnd_t, gl_glBreak_t, gl_glGetError_t;
 
 typedef struct {
@@ -220,6 +350,12 @@ typedef struct {
 	GLint location;
 	GLint v0;
 } gl_glUniform1i_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLint location;
+	GLfloat v0;
+} gl_glUniform1f_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -236,6 +372,14 @@ typedef struct {
 	GLenum sfactor;
 	GLenum dfactor;
 } gl_glBlendFunc_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum sfactorRGB;
+	GLenum dfactorRGB;
+	GLenum sfactorAlpha;
+	GLenum dfactorAlpha;
+} gl_glBlendFuncSeparate_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -262,8 +406,27 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
+	GLuint index;
+	const GLfloat *v;
+} gl_glVertexAttrib4fv_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum mode;
+	GLsizei count;
+	GLenum type;
+	const void *indices;
+} gl_glDrawElements_t;
+
+typedef struct {
+	unsigned int cmd;
 	unsigned int type;
 } gl_glCreateShader_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum src;
+} gl_glReadBuffer_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -388,8 +551,8 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	int n;
-	const unsigned int *arrays;
+	GLsizei n;
+	GLuint *arrays;
 } gl_glGenVertexArrays_t;
 
 typedef struct {

@@ -28,6 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
+#include <iostream>
+
 #include "rasterizer_canvas_gles3.h"
 
 #include "drivers/gles_common/rasterizer_asserts.h"
@@ -2176,7 +2178,7 @@ void RasterizerCanvasGLES3::_batch_render_generic(const Batch &p_batch, Rasteriz
 		} break;
 		case RasterizerStorageCommon::BT_RECT: {
 			int64_t offset = p_batch.first_vert * 3; // 6 inds per quad at 2 bytes each
-
+			// print_line("offset\t" + itos(offset));
 			int num_elements = p_batch.num_commands * 6;
 			glDrawElements(GL_TRIANGLES, num_elements, GL_UNSIGNED_SHORT, (void *)offset);
 		} break;
