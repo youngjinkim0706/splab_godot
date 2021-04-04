@@ -63,6 +63,7 @@ void ContextGL_X11::make_current() {
 void ContextGL_X11::swap_buffers() {
 
 	glXSwapBuffers(x11_display, x11_window);
+	// glSwapBuffer(); // yjkim
 }
 
 static bool ctxErrorOccurred = false;

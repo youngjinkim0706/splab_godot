@@ -150,7 +150,7 @@ Ref<Image> RasterizerStorageGLES3::_get_gl_image_and_format(const Ref<Image> &p_
 	switch (p_format) {
 
 		case Image::FORMAT_L8: {
-#ifdef GLES_OVER_GL
+#if defined(GLES_OVER_GL) || defined(GLREMOTE)
 			r_gl_internal_format = GL_R8;
 			r_gl_format = GL_RED;
 			r_gl_type = GL_UNSIGNED_BYTE;
@@ -161,7 +161,7 @@ Ref<Image> RasterizerStorageGLES3::_get_gl_image_and_format(const Ref<Image> &p_
 #endif
 		} break;
 		case Image::FORMAT_LA8: {
-#ifdef GLES_OVER_GL
+#if defined(GLES_OVER_GL) || defined(GLREMOTE)
 			r_gl_internal_format = GL_RG8;
 			r_gl_format = GL_RG;
 			r_gl_type = GL_UNSIGNED_BYTE;

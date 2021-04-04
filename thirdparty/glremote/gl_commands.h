@@ -73,6 +73,7 @@ enum GL_Server_Command {
 	GLSC_glClearDepthf,
 	GLSC_glClearBufferfv,
 	GLSC_glGetStringi,
+	GLSC_glGetString,
 	GLSC_glTexSubImage2D,
 	GLSC_glReadPixels,
 	GLSC_glBlendFuncSeparate,
@@ -85,6 +86,10 @@ enum GL_Server_Command {
 	GLSC_glUniform1f,
 	GLSC_glFramebufferTextureLayer,
 	GLSC_glRenderbufferStorageMultisample,
+	GLSC_glGetUniformLocation,
+	GLSC_glGetUniformBlockIndex,
+	GLSC_glBufferSubData,
+	GLSC_glBindAttribLocation,
 };
 
 typedef struct {
@@ -333,6 +338,11 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
+	GLenum name;
+} gl_glGetString_t;
+
+typedef struct {
+	unsigned int cmd;
 	GLuint index;
 } gl_glDisableVertexAttribArray_t;
 
@@ -372,6 +382,12 @@ typedef struct {
 	GLenum sfactor;
 	GLenum dfactor;
 } gl_glBlendFunc_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLuint program;
+	const GLchar *name;
+} gl_glGetUniformLocation_t, gl_glGetUniformBlockIndex_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -551,6 +567,14 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
+	GLenum target;
+	GLintptr offset;
+	GLsizeiptr size;
+	const void *data;
+} gl_glBufferSubData_t;
+
+typedef struct {
+	unsigned int cmd;
 	GLsizei n;
 	GLuint *arrays;
 } gl_glGenVertexArrays_t;
@@ -595,3 +619,10 @@ typedef struct {
 	int first;
 	int count;
 } gl_glDrawArrays_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLuint program;
+	GLuint index;
+	const GLchar *name;
+} gl_glBindAttribLocation_t;
