@@ -90,6 +90,7 @@ enum GL_Server_Command {
 	GLSC_glGetUniformBlockIndex,
 	GLSC_glBufferSubData,
 	GLSC_glBindAttribLocation,
+	GLSC_glCompressedTexImage2D,
 };
 
 typedef struct {
@@ -183,6 +184,18 @@ typedef struct {
 	GLenum type;
 	const void *pixels;
 } gl_glTexSubImage2D_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum target;
+	GLint level;
+	GLint internalformat;
+	GLsizei width;
+	GLsizei height;
+	GLint border;
+	GLsizei imageSize;
+	const void *pixels;
+} gl_glCompressedTexImage2D_t;
 
 typedef struct {
 	unsigned int cmd;

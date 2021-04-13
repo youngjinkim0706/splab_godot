@@ -45,7 +45,7 @@
 #endif
 
 // #define GLES3_INCLUDE_H "thirdparty/glad/glad/glad.h"
-#define GLES3_INCLUDE_H "thirdparty/glremote/glremote/glremote.h"
+#define GLES3_INCLUDE_H "thirdparty/glremote/glremote/glad.h"
 
 // #define GLES2_INCLUDE_H "thirdparty/glad/glad/glad.h"
-#define GLES2_INCLUDE_H "thirdparty/glremote/glremote/glremote.h"
+#define GLES2_INCLUDE_H "thirdparty/glremote/glremote/glad.h"

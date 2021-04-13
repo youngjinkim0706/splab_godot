@@ -463,6 +463,29 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			sock2.recv(msg, zmq::recv_flags::none);
 			break;
 		}
+		case GLSC_glCompressedTexImage2D: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			sock2.send(msg, zmq::send_flags::sndmore);
+
+			// send others except pixel data;
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			sock2.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glCompressedTexImage2D_t *more_data = (gl_glCompressedTexImage2D_t *)cmd_data;
+
+			zmq::message_t pixel_data;
+
+			if (more_data->pixels != NULL) {
+				pixel_data.rebuild(more_data->imageSize);
+				memcpy(pixel_data.data(), more_data->pixels, more_data->imageSize);
+			}
+
+			sock2.send(pixel_data, zmq::send_flags::none);
+			sock2.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+
 		case GLSC_glTexSubImage3D: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			sock2.send(msg, zmq::send_flags::sndmore);
@@ -1052,7 +1075,17 @@ void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha
 	send_data(GLSC_glColorMask, (void *)c, sizeof(gl_glColorMask_t));
 }
 void glCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glCompressedTexImage2D);
+	c->cmd = GLSC_glTexImage2D;
+	c->target = target;
+	c->level = level;
+	c->internalformat = internalformat;
+	c->width = width;
+	c->height = height;
+	c->border = border;
+	c->imageSize = imageSize;
+	c->pixels = data;
+	send_data(GLSC_glCompressedTexImage2D, (void *)c, sizeof(gl_glCompressedTexImage2D_t));
 }
 void glCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void *data) {
 	std::cout << __func__ << std::endl;
@@ -1205,7 +1238,7 @@ const GLubyte *glGetString(GLenum name) {
 	c->name = name;
 	std::string ret = send_data_get_string(GLSC_glGetString, (void *)c, sizeof(gl_glGetString_t));
 	// const GLubyte *ret = reinterpret_cast<const GLubyte *>(send_data(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t)));
-	// std::cout << reinterpret_cast<const GLubyte *>(ret.c_str()) << std::endl;
+	std::cout << ret << std::endl;
 	return reinterpret_cast<const GLubyte *>(ret.c_str());
 }
 void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat *params) {
@@ -1743,7 +1776,7 @@ const GLubyte *glGetStringi(GLenum name, GLuint index) {
 	c->index = index;
 	std::string ret = send_data_get_string(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t));
 	// const GLubyte *ret = reinterpret_cast<const GLubyte *>(send_data(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t)));
-	// std::cout << reinterpret_cast<const GLubyte *>(ret.c_str()) << std::endl;
+	// std::cout << ret.c_str() << std::endl;
 	return reinterpret_cast<const GLubyte *>(ret.c_str());
 }
 void glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
