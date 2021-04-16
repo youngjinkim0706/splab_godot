@@ -150,7 +150,7 @@ Ref<Image> RasterizerStorageGLES3::_get_gl_image_and_format(const Ref<Image> &p_
 	switch (p_format) {
 
 		case Image::FORMAT_L8: {
-#if defined(GLES_OVER_GL) || defined(GLREMOTE)
+#ifdef GLES_OVER_GL
 			r_gl_internal_format = GL_R8;
 			r_gl_format = GL_RED;
 			r_gl_type = GL_UNSIGNED_BYTE;
@@ -161,7 +161,7 @@ Ref<Image> RasterizerStorageGLES3::_get_gl_image_and_format(const Ref<Image> &p_
 #endif
 		} break;
 		case Image::FORMAT_LA8: {
-#if defined(GLES_OVER_GL) || defined(GLREMOTE)
+#ifdef GLES_OVER_GL
 			r_gl_internal_format = GL_RG8;
 			r_gl_format = GL_RG;
 			r_gl_type = GL_UNSIGNED_BYTE;
@@ -6385,6 +6385,10 @@ void RasterizerStorageGLES3::lightmap_capture_set_energy(RID p_capture, float p_
 	LightmapCapture *capture = lightmap_capture_data_owner.getornull(p_capture);
 	ERR_FAIL_COND(!capture);
 	capture->energy = p_energy;
+
+	if (!capture->update_list.in_list()) {
+		capture_update_list.add(&capture->update_list);
+	}
 }
 
 float RasterizerStorageGLES3::lightmap_capture_get_energy(RID p_capture) const {
@@ -6394,10 +6398,33 @@ float RasterizerStorageGLES3::lightmap_capture_get_energy(RID p_capture) const {
 	return capture->energy;
 }
 
+void RasterizerStorageGLES3::lightmap_capture_set_interior(RID p_capture, bool p_interior) {
+	LightmapCapture *capture = lightmap_capture_data_owner.getornull(p_capture);
+	ERR_FAIL_COND(!capture);
+	capture->interior = p_interior;
+	if (!capture->update_list.in_list()) {
+		capture_update_list.add(&capture->update_list);
+	}
+}
+
+bool RasterizerStorageGLES3::lightmap_capture_is_interior(RID p_capture) const {
+	const LightmapCapture *capture = lightmap_capture_data_owner.getornull(p_capture);
+	ERR_FAIL_COND_V(!capture, false);
+	return capture->interior;
+}
+
 const PoolVector<RasterizerStorage::LightmapCaptureOctree> *RasterizerStorageGLES3::lightmap_capture_get_octree_ptr(RID p_capture) const {
 	const LightmapCapture *capture = lightmap_capture_data_owner.getornull(p_capture);
 	ERR_FAIL_COND_V(!capture, NULL);
 	return &capture->octree;
+}
+
+void RasterizerStorageGLES3::update_dirty_captures() {
+	while (capture_update_list.first()) {
+		LightmapCapture *capture = capture_update_list.first()->self();
+		capture->instance_change_notify(false, true);
+		capture_update_list.remove(capture_update_list.first());
+	}
 }
 
 ///////
@@ -8294,7 +8321,7 @@ int RasterizerStorageGLES3::get_captured_render_info(VS::RenderInfo p_info) {
 	}
 }
 
-int RasterizerStorageGLES3::get_render_info(VS::RenderInfo p_info) {
+uint64_t RasterizerStorageGLES3::get_render_info(VS::RenderInfo p_info) {
 
 	switch (p_info) {
 		case VS::INFO_OBJECTS_IN_FRAME:
@@ -8349,7 +8376,6 @@ void RasterizerStorageGLES3::initialize() {
 		glGetIntegerv(GL_NUM_EXTENSIONS, &max_extensions);
 		for (int i = 0; i < max_extensions; i++) {
 			const GLubyte *s = glGetStringi(GL_EXTENSIONS, i);
-			// print_line();
 			if (!s)
 				break;
 			config.extensions.insert((const char *)s);
@@ -8592,6 +8618,7 @@ void RasterizerStorageGLES3::update_dirty_resources() {
 	update_dirty_shaders();
 	update_dirty_materials();
 	update_particles();
+	update_dirty_captures();
 }
 
 RasterizerStorageGLES3::RasterizerStorageGLES3() {

@@ -28,8 +28,6 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#include <iostream>
-
 #include "rasterizer_canvas_gles3.h"
 
 #include "drivers/gles_common/rasterizer_asserts.h"
@@ -1196,12 +1194,9 @@ void RasterizerCanvasGLES3::render_batches(Item::Command *const *p_commands, Ite
 void RasterizerCanvasGLES3::render_joined_item(const BItemJoined &p_bij, RenderItemState &r_ris) {
 	storage->info.render._2d_item_count++;
 
-#ifdef DEBUG_ENABLED
+#if defined(TOOLS_ENABLED) && defined(DEBUG_ENABLED)
 	if (bdata.diagnose_frame) {
-		bdata.frame_string += "\tjoined_item " + itos(p_bij.num_item_refs) + " refs\n";
-		if (p_bij.z_index != 0) {
-			bdata.frame_string += "\t\t(z " + itos(p_bij.z_index) + ")\n";
-		}
+		bdata.frame_string += _diagnose_make_item_joined_string(p_bij);
 	}
 #endif
 
@@ -2178,7 +2173,7 @@ void RasterizerCanvasGLES3::_batch_render_generic(const Batch &p_batch, Rasteriz
 		} break;
 		case RasterizerStorageCommon::BT_RECT: {
 			int64_t offset = p_batch.first_vert * 3; // 6 inds per quad at 2 bytes each
-			// print_line("offset\t" + itos(offset));
+
 			int num_elements = p_batch.num_commands * 6;
 			glDrawElements(GL_TRIANGLES, num_elements, GL_UNSIGNED_SHORT, (void *)offset);
 		} break;
@@ -2342,6 +2337,12 @@ void RasterizerCanvasGLES3::initialize() {
 
 		glBindVertexArray(0);
 	} // for vao
+
+	// deal with ninepatch mode option
+	if (bdata.settings_ninepatch_mode == 1) {
+		state.canvas_shader.add_custom_define("#define USE_NINEPATCH_SCALING\n");
+	}
+
 	gl_checkerror();
 }
 

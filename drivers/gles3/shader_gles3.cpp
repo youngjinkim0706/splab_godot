@@ -295,6 +295,10 @@ ShaderGLES3::Version *ShaderGLES3::get_current_version() {
 	}
 
 	strings.push_back(vertex_code3.get_data());
+	// for (int i = 0; i < strings.size(); i++) {
+
+	// 	print_line("vert strings " + itos(i) + ":" + String(strings[i]));
+	// }
 #ifdef DEBUG_SHADER
 
 	DEBUG_PRINT("\nVertex Code:\n\n" + String(code_string.get_data()));
@@ -307,6 +311,7 @@ ShaderGLES3::Version *ShaderGLES3::get_current_version() {
 	v.vert_id = glCreateShader(GL_VERTEX_SHADER);
 	glShaderSource(v.vert_id, strings.size(), &strings[0], NULL);
 	glCompileShader(v.vert_id);
+
 	GLint status;
 
 	glGetShaderiv(v.vert_id, GL_COMPILE_STATUS, &status);
@@ -447,6 +452,7 @@ ShaderGLES3::Version *ShaderGLES3::get_current_version() {
 	// bind attributes before linking
 	for (int i = 0; i < attribute_pair_count; i++) {
 
+		print_line(attribute_pairs[i].name);
 		glBindAttribLocation(v.id, attribute_pairs[i].index, attribute_pairs[i].name);
 	}
 

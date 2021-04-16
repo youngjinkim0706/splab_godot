@@ -33,8 +33,6 @@
 #include "core/os/os.h"
 #include "core/project_settings.h"
 
-#include <chrono>
-
 RasterizerStorage *RasterizerGLES3::get_storage() {
 
 	return storage;
@@ -156,12 +154,6 @@ Error RasterizerGLES3::is_viable() {
 #endif // GLAD_ENABLED
 	return OK;
 }
-
-// for breaking down yjkim
-
-int count_frame = 0;
-int glpixel_ = 0;
-int write_to_jpg = 0;
 
 void RasterizerGLES3::initialize() {
 
@@ -383,7 +375,7 @@ void RasterizerGLES3::output_lens_distorted_to_screen(RID p_render_target, const
 }
 
 void RasterizerGLES3::end_frame(bool p_swap_buffers) {
-	// print_line("end_frame");
+
 	if (OS::get_singleton()->is_layered_allowed()) {
 		if (!OS::get_singleton()->get_window_per_pixel_transparency_enabled()) {
 			//clear alpha
@@ -396,33 +388,7 @@ void RasterizerGLES3::end_frame(bool p_swap_buffers) {
 
 	if (p_swap_buffers) {
 		OS::get_singleton()->swap_buffers();
-		glSwapBuffer();
-
-		// Size2 win_size = OS::get_singleton()->get_window_size();
-		// if(win_size.height > 0.0){
-		// 	// with gstreamer appsrc
-		// 	count_frame += 1;
-
-		// 	// too slow
-		// 	unsigned char *data  = (unsigned char*) malloc(win_size.width * win_size.height * 4); // GL_RGBA
-		// 	glReadBuffer(GL_FRONT); // front buffer
-
-		// 	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-		// 	glReadPixels(0, 0, win_size.width, win_size.height, GL_RGBA, GL_UNSIGNED_BYTE, data);
-		// 	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-		// 	// print_line("glReadPixels\t" + rtos(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()));
-
-		// 	glpixel_ += std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-
-		// 	begin = std::chrono::steady_clock::now();
-		// 	stbi_flip_vertically_on_write(true);
-		// 	stbi_write_jpg("/run/jpg_test.jpg", win_size.width, win_size.height, 4, data, 4 * win_size.width);
-		// 	end = std::chrono::steady_clock::now();
-		// 	// print_line("stbi_write_jpg\t" + rtos(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()));
-
-		// 	write_to_jpg += std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-
-		// }
+		glSwapBuffer(); // yjkim
 	} else
 		glFinish();
 }
@@ -431,8 +397,6 @@ void RasterizerGLES3::finalize() {
 
 	storage->finalize();
 	canvas->finalize();
-	print_line("avg glReadPixel\t" + rtos(glpixel_ / count_frame));
-	print_line("avg write_to_jpg\t" + rtos(write_to_jpg / count_frame));
 }
 
 Rasterizer *RasterizerGLES3::_create_current() {

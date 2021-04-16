@@ -176,7 +176,7 @@ Error RasterizerGLES2::is_viable() {
 		return ERR_UNAVAILABLE;
 	}
 
-#ifdef GLES_OVER_GL
+#if defined(GLES_OVER_GL) && !defined(GLREMOTE)
 	//Test GL_ARB_framebuffer_object extension
 	if (!GLAD_GL_ARB_framebuffer_object) {
 		//Try older GL_EXT_framebuffer_object extension
@@ -217,7 +217,8 @@ void RasterizerGLES2::initialize() {
 
 	print_verbose("Using GLES2 video driver");
 
-#ifdef GLAD_ENABLED
+// #ifdef GLAD_ENABLED
+#if defined(GLAD_ENABLED) && defined(CAN_DEBUG)
 	if (OS::get_singleton()->is_stdout_verbose()) {
 		if (GLAD_GL_ARB_debug_output) {
 			glEnable(_EXT_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
@@ -227,8 +228,7 @@ void RasterizerGLES2::initialize() {
 			print_line("OpenGL debugging not supported!");
 		}
 	}
-#endif // GLAD_ENABLED
-
+#endif // GLAD_ENABLED & CAN_DEBUG
 	// For debugging
 #ifdef CAN_DEBUG
 #ifdef GLES_OVER_GL

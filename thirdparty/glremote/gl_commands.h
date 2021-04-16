@@ -332,10 +332,10 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	int x;
-	int y;
-	int width;
-	int height;
+	GLint x;
+	GLint y;
+	GLsizei width;
+	GLsizei height;
 } gl_glViewport_t;
 
 typedef struct {
@@ -365,7 +365,7 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int mask;
+	GLbitfield mask;
 } gl_glClear_t;
 
 typedef struct {
@@ -412,16 +412,16 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	float red;
-	float green;
-	float blue;
+	GLfloat red;
+	GLfloat green;
+	GLfloat blue;
 } gl_glColor3f_t;
 
 typedef struct {
 	unsigned int cmd;
-	float x;
-	float y;
-	float z;
+	GLfloat x;
+	GLfloat y;
+	GLfloat z;
 } gl_glVertex3f_t;
 
 typedef struct {
@@ -444,12 +444,12 @@ typedef struct {
 	GLenum mode;
 	GLsizei count;
 	GLenum type;
-	const void *indices;
+	int64_t indices;
 } gl_glDrawElements_t;
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int type;
+	GLenum type;
 } gl_glCreateShader_t;
 
 typedef struct {
@@ -459,15 +459,15 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	int shader;
-	int count;
-	const char *const *string;
-	const int *length; // usally null
+	GLuint shader;
+	GLuint count;
+	const GLchar *const *string;
+	const GLint *length; // usally null
 } gl_glShaderSource_t;
 
 typedef struct {
 	unsigned int cmd;
-	int shader;
+	GLuint shader;
 } gl_glCompileShader_t;
 
 typedef struct {
@@ -477,32 +477,32 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	int shader;
-	unsigned int pname;
-	int *result;
+	GLuint shader;
+	GLenum pname;
+	GLint *result;
 } gl_glGetShaderiv_t;
 
 typedef struct {
 	unsigned int cmd;
-	int program;
-	int shader;
+	GLuint program;
+	GLuint shader;
 } gl_glAttachShader_t;
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int program;
+	GLuint program;
 } gl_glLinkProgram_t, gl_glUseProgram_t;
 
 typedef struct {
 	unsigned int cmd;
-	int program;
-	unsigned int pname;
-	int *result;
+	GLuint program;
+	GLenum pname;
+	GLint *result;
 } gl_glGetProgramiv_t;
 
 typedef struct {
 	unsigned int cmd;
-	int n;
+	GLsizei n;
 	GLuint *buffers;
 } gl_glGenBuffers_t, gl_glGenFramebuffers_t, gl_glGenRenderbuffers_t;
 
@@ -560,8 +560,8 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int target;
-	unsigned int id;
+	GLenum target;
+	GLuint id;
 } gl_glBindBuffer_t;
 
 typedef struct {
@@ -572,10 +572,10 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int target;
-	long int size;
+	GLenum target;
+	GLsizeiptr size;
 	const void *data;
-	unsigned int usage;
+	GLenum usage;
 } gl_glBufferData_t;
 
 typedef struct {
@@ -594,43 +594,43 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int array;
+	GLuint array;
 } gl_glBindVertexArray_t;
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int programObj;
-	const char *name;
+	GLuint programObj;
+	const GLchar *name;
 } gl_glGetAttribLocation_t;
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int index;
-	int size;
-	unsigned int type;
-	bool normalized;
-	int stride;
-	const void *pointer;
+	GLuint index;
+	GLint size;
+	GLenum type;
+	GLboolean normalized;
+	GLsizei stride;
+	int64_t pointer;
 } gl_glVertexAttribPointer_t;
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int index;
+	GLuint index;
 } gl_glEnableVertexAttribArray_t;
 
 typedef struct {
 	unsigned int cmd;
-	float red;
-	float green;
-	float blue;
-	float alpha;
+	GLfloat red;
+	GLfloat green;
+	GLfloat blue;
+	GLfloat alpha;
 } gl_glClearColor_t;
 
 typedef struct {
 	unsigned int cmd;
-	unsigned int mode;
-	int first;
-	int count;
+	GLenum mode;
+	GLint first;
+	GLsizei count;
 } gl_glDrawArrays_t;
 
 typedef struct {
