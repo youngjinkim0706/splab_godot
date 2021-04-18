@@ -39,6 +39,10 @@
 #include "core/rid.h"
 #include "core/variant.h"
 
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 class VisualServer : public Object {
 
 	GDCLASS(VisualServer, Object);

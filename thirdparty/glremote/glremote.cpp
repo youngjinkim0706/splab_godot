@@ -17,9 +17,10 @@ GLint global_pack_alignment = 4;
 GLint global_unpack_alignment = 4;
 
 std::string send_data_get_string(unsigned int cmd, void *cmd_data, int size) {
+	// std::cout << syscall(SYS_gettid) << std::endl;
+
 	zmq::context_t ctx;
 	zmq::socket_t sock2(ctx, zmq::socket_type::req);
-
 	sock2.connect("tcp://127.0.0.1:12345");
 
 	gl_command_t c = {
@@ -27,8 +28,9 @@ std::string send_data_get_string(unsigned int cmd, void *cmd_data, int size) {
 	};
 
 	zmq::message_t msg(sizeof(c));
+#ifdef GLREMOTE_DEBUG
 	auto start = std::chrono::steady_clock::now();
-
+#endif //GLREMOTE_DEBUG
 	switch (cmd) {
 		case GLSC_glGetStringi:
 		case GLSC_glGetString:
@@ -45,26 +47,32 @@ std::string send_data_get_string(unsigned int cmd, void *cmd_data, int size) {
 			break;
 		}
 	}
+#ifdef GLREMOTE_DEBUG
 	auto end = std::chrono::steady_clock::now();
 
 	std::cout << "glcmd: " << cmd << " Elapsed time in microseconds: "
 			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
 			  << " µs" << std::endl;
-
+#endif // GLREMOTE_DEBUG
+	sock2.close();
 	return msg.to_string();
 }
 
 void *send_data(unsigned int cmd, void *cmd_data, int size) {
+
+	// std::cout << syscall(SYS_gettid) << std::endl;
+
 	zmq::context_t ctx;
 	zmq::socket_t sock2(ctx, zmq::socket_type::req);
-
 	sock2.connect("tcp://127.0.0.1:12345");
 
 	gl_command_t c = {
 		cmd, size
 	};
 	zmq::message_t msg(sizeof(c));
+#ifdef GLREMOTE_DEBUG
 	auto start = std::chrono::steady_clock::now();
+#endif //GLREMOTE_DEBUG
 	switch (cmd) {
 		case GLSC_glClearBufferfv: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
@@ -626,12 +634,14 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			break;
 		}
 	}
+#ifdef GLREMOTE_DEBUG
 	auto end = std::chrono::steady_clock::now();
 
 	std::cout << "glcmd: " << cmd << " Elapsed time in microseconds: "
 			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
 			  << " µs" << std::endl;
-
+#endif // GLREMOTE_DEBUG
+	sock2.close();
 	return msg.data();
 }
 
