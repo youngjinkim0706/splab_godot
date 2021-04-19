@@ -49,6 +49,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "thirdparty/glremote/zmq_server.h"
+#include <iostream>
+
 #define GLX_CONTEXT_MAJOR_VERSION_ARB 0x2091
 #define GLX_CONTEXT_MINOR_VERSION_ARB 0x2092
 
@@ -137,7 +140,38 @@ int detect_prime() {
 	vendors[1] = "Unknown";
 	renderers[0] = "Unknown";
 	renderers[1] = "Unknown";
+	for (int i = 0; i < 2; ++i) {
+		int fdset[2];
 
+		if (pipe(fdset) == -1) {
+			print_verbose("Failed to pipe(), using default GPU");
+			return 0;
+		}
+
+		// Fork so the driver initialization can crash without taking down the engine.
+		// p = fork();
+
+		{
+			char string[201];
+			string[200] = '\0';
+			if (i) setenv("DRI_PRIME", "1", 1);
+			create_context();
+
+			const char *vendor = (const char *)glGetString(GL_VENDOR);
+			const char *renderer = (const char *)glGetString(GL_RENDERER);
+
+			unsigned int vendor_len = strlen(vendor) + 1;
+			unsigned int renderer_len = strlen(renderer) + 1;
+
+			if (vendor_len + renderer_len >= sizeof(string)) {
+				renderer_len = 200 - vendor_len;
+			}
+
+			memcpy(&string, vendor, vendor_len);
+			memcpy(&string[vendor_len], renderer, renderer_len);
+		}
+	}
+	/*
 	for (int i = 0; i < 2; ++i) {
 		int fdset[2];
 
@@ -174,6 +208,7 @@ int detect_prime() {
 
 		} else {
 			// In child, exit() here will not quit the engine.
+			// std::cout << "what the fork" << std::endl;
 
 			char string[201];
 
@@ -202,6 +237,7 @@ int detect_prime() {
 			exit(0);
 		}
 	}
+	*/
 
 	int preferred = 0;
 	int priority = 0;

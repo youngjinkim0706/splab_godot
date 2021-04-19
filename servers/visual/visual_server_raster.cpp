@@ -134,7 +134,7 @@ bool VisualServerRaster::has_changed() const {
 	return changes > 0;
 }
 void VisualServerRaster::init() {
-	print_line(itos(syscall(__NR_gettid)));
+	// print_line(itos(syscall(__NR_gettid)));
 	VSG::rasterizer->initialize();
 }
 void VisualServerRaster::finish() {

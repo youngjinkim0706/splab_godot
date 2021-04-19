@@ -1278,6 +1278,22 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 	// Print engine name and version
 	print_line(String(VERSION_NAME) + " v" + get_full_version_string() + " - " + String(VERSION_WEBSITE));
 
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq_server->init_zmq();
+	// zmq_server->log();
+
+	// zmq_server->socket.connect("tcp://127.0.0.1:12345");
+
+	// struct test {
+	// 	unsigned int cmd = 999;
+	// 	int size = 0;
+	// } test_t;
+
+	// zmq::message_t msg(sizeof(test_t));
+	// memcpy(msg.data(), &test_t, sizeof(test_t));
+	// zmq_server->socket.send(msg, zmq::send_flags::none);
+	// zmq_server->socket.recv(msg, zmq::recv_flags::none);
+
 #if !defined(NO_THREADS)
 	if (p_main_tid_override) {
 		Thread::main_thread_id = p_main_tid_override;

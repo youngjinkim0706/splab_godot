@@ -6,7 +6,7 @@ if env["platform"] in ["haiku", "osx", "windows", "x11"]:
     # Thirdparty source files
     thirdparty_dir = "#thirdparty/glremote/"
     thirdparty_sources = [
-        "glremote.cpp",
+        "glremote.cpp", "zmq_server.cpp"
     ]
     thirdparty_sources = [thirdparty_dir + file for file in thirdparty_sources]
 

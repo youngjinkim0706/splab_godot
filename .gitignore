@@ -1,6 +1,7 @@
 perf.data
 uftrace.data/*
 uftrace.data.old/*
+t
 # Godot auto generated files
 *.gen.*
 .import/

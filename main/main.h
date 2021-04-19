@@ -35,6 +35,8 @@
 #include "core/os/thread.h"
 #include "core/typedefs.h"
 
+#include "thirdparty/glremote/zmq_server.h"
+
 class Main {
 
 	static void print_help(const char *p_binary);

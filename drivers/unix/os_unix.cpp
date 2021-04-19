@@ -318,7 +318,6 @@ Error OS_Unix::execute(const String &p_path, const List<String> &p_arguments, bo
 
 	if (pid == 0) {
 		// is child
-
 		if (!p_blocking) {
 			// For non blocking calls, create a new session-ID so parent won't wait for it.
 			// This ensures the process won't go zombie at end.
