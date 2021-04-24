@@ -15,55 +15,7 @@
 GLint global_pack_alignment = 4;
 GLint global_unpack_alignment = 4;
 
-std::string send_data_get_string(unsigned int cmd, void *cmd_data, int size) {
-
-	ZMQServer *zmq_server = ZMQServer::get_instance();
-
-	// zmq_server->add_count();
-	// zmq_server->get_count();
-	// std::cout << getpid() << "\t" << syscall(__NR_gettid) << std::endl;
-	// zmq::context_t ctx;
-	// zmq::socket_t zmq_server->socket(ctx, zmq::socket_type::req);
-
-	zmq_server->socket.connect("tcp://127.0.0.1:12345");
-
-	gl_command_t c = {
-		cmd, size
-	};
-
-	zmq::message_t msg(sizeof(c));
-#ifdef GLREMOTE_DEBUG
-	auto start = std::chrono::steady_clock::now();
-#endif //GLREMOTE_DEBUG
-	switch (cmd) {
-		case GLSC_glGetStringi:
-		case GLSC_glGetString:
-		default: {
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-
-			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			zmq_server->socket.send(data_msg, zmq::send_flags::none);
-
-			zmq_server->socket.recv(msg, zmq::recv_flags::none);
-
-			break;
-		}
-	}
-#ifdef GLREMOTE_DEBUG
-	auto end = std::chrono::steady_clock::now();
-
-	std::cout << "glcmd: " << cmd << " Elapsed time in microseconds: "
-			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
-			  << " µs" << std::endl;
-#endif // GLREMOTE_DEBUG
-	// zmq_server->socket.close();
-	return msg.to_string();
-}
-
-void *send_data(unsigned int cmd, void *cmd_data, int size) {
+zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size) {
 
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 
@@ -75,6 +27,7 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 		cmd, size
 	};
 	zmq::message_t msg(sizeof(c));
+	// std::cout << cmd << std::endl;
 #ifdef GLREMOTE_DEBUG
 	auto start = std::chrono::steady_clock::now();
 #endif //GLREMOTE_DEBUG
@@ -146,7 +99,6 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 		}
 		case GLSC_glShaderSource: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			// gl_command_t* cc = (gl_command_t *)msg.data();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 
 			zmq::message_t data_msg(size);
@@ -160,6 +112,34 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 				if (strlen(more_data->string[i]) > 0) {
 					string_data.rebuild(strlen(more_data->string[i]));
 					memcpy(string_data.data(), more_data->string[i], strlen(more_data->string[i]));
+				}
+				// std::cout << "data size::\t" << string_data.size() << std::endl;
+
+				if (i == more_data->count - 1) {
+					zmq_server->socket.send(string_data, zmq::send_flags::none);
+				} else {
+					zmq_server->socket.send(string_data, zmq::send_flags::sndmore);
+				}
+			}
+
+			zmq_server->socket.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+		case GLSC_glTransformFeedbackVaryings: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glTransformFeedbackVaryings_t *more_data = (gl_glTransformFeedbackVaryings_t *)cmd_data;
+			// std::
+			for (int i = 0; i < more_data->count; i++) {
+				zmq::message_t string_data;
+				if (strlen(more_data->varyings[i]) > 0) {
+					string_data.rebuild(strlen(more_data->varyings[i]));
+					memcpy(string_data.data(), more_data->varyings[i], strlen(more_data->varyings[i]));
 				}
 				// std::cout << "data size::\t" << string_data.size() << std::endl;
 
@@ -238,7 +218,6 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			gl_glUniform4fv_t *more_data = (gl_glUniform4fv_t *)cmd_data;
 			zmq::message_t buffer_data;
 			if (more_data->value != NULL) {
-
 				buffer_data.rebuild(more_data->count * 4 * sizeof(GLfloat));
 				memcpy(buffer_data.data(), more_data->value, more_data->count * 4 * sizeof(GLfloat));
 			}
@@ -366,6 +345,9 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 						case GL_RGB:
 							pixelbytes = 3;
 							break;
+						case GL_RG:
+							pixelbytes = 2;
+							break;
 						case GL_RGBA:
 							pixelbytes = 4;
 							break;
@@ -492,7 +474,6 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			zmq_server->socket.recv(msg, zmq::recv_flags::none);
 			break;
 		}
-
 		case GLSC_glTexSubImage3D: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
@@ -647,7 +628,7 @@ void *send_data(unsigned int cmd, void *cmd_data, int size) {
 			  << " µs" << std::endl;
 #endif // GLREMOTE_DEBUG
 	// zmq_server->socket.close();
-	return msg.data();
+	return msg;
 }
 
 void glViewport(GLint x, GLint y, GLsizei width, GLsizei height) {
@@ -727,16 +708,17 @@ GLuint glCreateShader(GLenum type) {
 	GL_SET_COMMAND(c, glCreateShader);
 	c->cmd = GLSC_glCreateShader;
 	c->type = type;
-	GLuint *ret = (GLuint *)send_data(GLSC_glCreateShader, (void *)c, sizeof(gl_glCreateShader_t));
+	zmq::message_t result = send_data(GLSC_glCreateShader, (void *)c, sizeof(gl_glCreateShader_t));
+	GLuint *ret = (GLuint *) result.data();
 	return (GLuint)*ret;
 	// std::cout << __func__ << std::endl;
 }
 GLenum glGetError(void) {
 	GL_SET_COMMAND(c, glGetError);
 	c->cmd = GLSC_glGetError;
-	unsigned int *ret = (unsigned int *)send_data(GLSC_glGetError, (void *)c, sizeof(gl_glGetError_t));
+	zmq::message_t result = send_data(GLSC_glGetError, (void *)c, sizeof(gl_glGetError_t));
+	unsigned int *ret = (GLenum *) result.data();
 	return static_cast<GLenum>(*ret);
-	// std::cout << __func__ << std::endl;
 }
 
 void glShaderSource(GLuint shader, GLuint count, const GLchar *const *string, const GLint *length) {
@@ -763,7 +745,8 @@ void glGetShaderiv(GLuint shader, GLenum pname, GLint *param) {
 	c->cmd = GLSC_glGetShaderiv;
 	c->shader = shader;
 	c->pname = pname;
-	int *ret = (int *)send_data(GLSC_glGetShaderiv, (void *)c, sizeof(gl_glGetShaderiv_t));
+	zmq::message_t result = send_data(GLSC_glGetShaderiv, (void *)c, sizeof(gl_glGetShaderiv_t));
+	GLint *ret = (GLint *) result.data();
 	memcpy((void *)param, (void *)ret, sizeof(GLuint));
 	// std::cout << __func__ << std::endl;
 }
@@ -771,7 +754,8 @@ void glGetShaderiv(GLuint shader, GLenum pname, GLint *param) {
 GLuint glCreateProgram() {
 	GL_SET_COMMAND(c, glCreateProgram);
 	c->cmd = GLSC_glCreateProgram;
-	GLuint *ret = (GLuint *)send_data(GLSC_glCreateProgram, (void *)c, sizeof(gl_glCreateProgram_t));
+	zmq::message_t result = send_data(GLSC_glCreateProgram, (void *)c, sizeof(gl_glCreateProgram_t));
+	GLuint *ret = (GLuint *) result.data();
 	return *(GLuint *)ret;
 	// std::cout << __func__ << std::endl;
 }
@@ -798,8 +782,8 @@ void glGetProgramiv(GLuint program, GLenum pname, GLint *param) {
 	c->cmd = GLSC_glGetProgramiv;
 	c->program = program;
 	c->pname = pname;
-	int *ret = (int *)send_data(GLSC_glGetProgramiv, (void *)c, sizeof(gl_glGetProgramiv_t));
-	// param  = (int*) send_data(GLSC_glGetProgramiv, (void*)c, sizeof(gl_glGetProgramiv_t));
+	zmq::message_t result = send_data(GLSC_glGetProgramiv, (void *)c, sizeof(gl_glGetProgramiv_t));
+	GLint *ret = (GLint *) result.data();
 	memcpy((void *)param, (void *)ret, sizeof(GLint));
 	// std::cout << __func__ << std::endl;
 }
@@ -808,10 +792,9 @@ void glGenBuffers(GLsizei n, GLuint *buffers) {
 	GL_SET_COMMAND(c, glGenBuffers);
 	c->cmd = GLSC_glGenBuffers;
 	c->n = n;
-	// buffers = (unsigned int*) send_data(GLSC_glGenBuffers, (void*)c, sizeof(gl_glGenBuffers_t));
-
-	GLuint *ret = (GLuint *)send_data(GLSC_glGenBuffers, (void *)c, sizeof(gl_glGenBuffers_t));
-	memcpy((void *)buffers, (void *)ret, sizeof(GLuint));
+	zmq::message_t result = send_data(GLSC_glGenBuffers, (void *)c, sizeof(gl_glGenBuffers_t));
+	GLuint *ret = (GLuint *) result.data();
+	memcpy((void *)buffers, (void *)ret, sizeof(GLuint) * n);
 	// std::cout << __func__ << std::endl;
 }
 
@@ -839,9 +822,9 @@ void glGenVertexArrays(GLsizei n, GLuint *arrays) {
 	GL_SET_COMMAND(c, glGenVertexArrays);
 	c->cmd = GLSC_glGenVertexArrays;
 	c->n = n;
-
-	GLuint *ret = (GLuint *)send_data(GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t));
-	memcpy((void *)arrays, (void *)ret, sizeof(GLuint));
+	zmq::message_t result = send_data(GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t));
+	GLuint *ret = (GLuint *) result.data();
+	memcpy((void *)arrays, (void *)ret, sizeof(GLuint) * n);
 	// std::cout << __func__ << std::endl;
 }
 
@@ -858,7 +841,8 @@ GLint glGetAttribLocation(GLuint programObj, const GLchar *name) {
 	c->cmd = GLSC_glGetAttribLocation;
 	c->programObj = programObj;
 	c->name = name;
-	GLint *ret = (GLint *)send_data(GLSC_glGetAttribLocation, (void *)c, sizeof(gl_glGetAttribLocation_t));
+	zmq::message_t result = send_data(GLSC_glGetAttribLocation, (void *)c, sizeof(gl_glGetAttribLocation_t));
+	GLint *ret = (GLint *) result.data();
 	return (GLint)*ret;
 	// std::cout << __func__ << std::endl;
 }
@@ -925,7 +909,8 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 	c->cmd = GLSC_glGetIntegerv;
 	c->pname = pname;
 	c->data = data;
-	GLint *ret = (GLint *)send_data(GLSC_glGetIntegerv, (void *)c, sizeof(gl_glGetIntegerv_t));
+	zmq::message_t result = send_data(GLSC_glGetIntegerv, (void *)c, sizeof(gl_glGetIntegerv_t));
+	GLint *ret = (GLint *) result.data();
 	memcpy((void *)data, (void *)ret, sizeof(GLint));
 	// std::cout << __func__ << std::endl;
 }
@@ -934,7 +919,8 @@ void glGetFloatv(GLenum pname, GLfloat *data) {
 	c->cmd = GLSC_glGetFloatv;
 	c->pname = pname;
 	c->data = data;
-	GLfloat *ret = (GLfloat *)send_data(GLSC_glGetFloatv, (void *)c, sizeof(gl_glGetFloatv_t));
+	zmq::message_t result = send_data(GLSC_glGetFloatv, (void *)c, sizeof(gl_glGetFloatv_t));
+	GLfloat *ret = (GLfloat *) result.data();
 	memcpy((void *)data, (void *)ret, sizeof(GLfloat));
 	// std::cout << __func__ << std::endl;
 }
@@ -942,8 +928,9 @@ void glGenTextures(GLsizei n, GLuint *textures) {
 	GL_SET_COMMAND(c, glGenTextures);
 	c->cmd = GLSC_glGenTextures;
 	c->n = n;
-	GLuint *ret = (GLuint *)send_data(GLSC_glGenTextures, (void *)c, sizeof(gl_glGenTextures_t));
-	memcpy((void *)textures, (void *)ret, sizeof(GLuint));
+	zmq::message_t result = send_data(GLSC_glGenTextures, (void *)c, sizeof(gl_glGenTextures_t));
+	GLuint *ret = (GLuint *) result.data();
+	memcpy((void *)textures, (void *)ret, sizeof(GLuint) * n);
 	// std::cout << *textures << "\t" << *ret << std::endl;
 	// std::cout << __func__ << std::endl;
 }
@@ -1001,8 +988,9 @@ void glGenFramebuffers(GLsizei n, GLuint *framebuffers) {
 	GL_SET_COMMAND(c, glGenFramebuffers);
 	c->cmd = GLSC_glGenFramebuffers;
 	c->n = n;
-	GLuint *ret = (GLuint *)send_data(GLSC_glGenFramebuffers, (void *)c, sizeof(gl_glGenFramebuffers_t));
-	memcpy((void *)framebuffers, (void *)ret, sizeof(GLuint));
+	zmq::message_t result = send_data(GLSC_glGenFramebuffers, (void *)c, sizeof(gl_glGenFramebuffers_t));
+	GLuint *ret = (GLuint *) result.data();
+	memcpy((void *)framebuffers, (void *)ret, sizeof(GLuint) * n);
 	// std::cout << __func__ << std::endl;
 }
 void glBindFramebuffer(GLenum target, GLuint framebuffer) {
@@ -1029,7 +1017,8 @@ GLenum glCheckFramebufferStatus(GLenum target) {
 	GL_SET_COMMAND(c, glCheckFramebufferStatus);
 	c->cmd = GLSC_glCheckFramebufferStatus;
 	c->target = target;
-	GLenum *ret = (GLenum *)send_data(GLSC_glCheckFramebufferStatus, (void *)c, sizeof(gl_glCheckFramebufferStatus_t));
+	zmq::message_t result = send_data(GLSC_glCheckFramebufferStatus, (void *)c, sizeof(gl_glCheckFramebufferStatus_t));
+	GLenum *ret = (GLenum *) result.data();
 	return (GLenum)*ret;
 	// std::cout << __func__ << std::endl;
 }
@@ -1280,8 +1269,9 @@ void glGenRenderbuffers(GLsizei n, GLuint *renderbuffers) {
 	GL_SET_COMMAND(c, glGenRenderbuffers);
 	c->cmd = GLSC_glGenRenderbuffers;
 	c->n = n;
-	GLuint *ret = (GLuint *)send_data(GLSC_glGenRenderbuffers, (void *)c, sizeof(gl_glGenRenderbuffers_t));
-	memcpy((void *)renderbuffers, (void *)ret, sizeof(GLuint));
+	zmq::message_t result = send_data(GLSC_glGenRenderbuffers, (void *)c, sizeof(gl_glGenRenderbuffers_t));
+	GLuint *ret = (GLuint *) result.data();
+	memcpy((void *)renderbuffers, (void *)ret, sizeof(GLuint) * n);
 	// std::cout << __func__ << std::endl;
 }
 void glGetActiveAttrib(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) {
@@ -1332,8 +1322,8 @@ const GLubyte *glGetString(GLenum name) {
 	GL_SET_COMMAND(c, glGetString);
 	c->cmd = GLSC_glGetString;
 	c->name = name;
-	std::string ret = send_data_get_string(GLSC_glGetString, (void *)c, sizeof(gl_glGetString_t));
-	// const GLubyte *ret = reinterpret_cast<const GLubyte *>(send_data(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t)));
+	zmq::message_t result = send_data(GLSC_glGetString, (void *)c, sizeof(gl_glGetString_t));
+	std::string ret = result.to_string();
 	// std::cout << ret << std::endl;
 	// std::cout << __func__ << std::endl;
 	return reinterpret_cast<const GLubyte *>(ret.c_str());
@@ -1359,8 +1349,9 @@ GLint glGetUniformLocation(GLuint program, const GLchar *name) {
 	c->cmd = GLSC_glGetUniformLocation;
 	c->program = program;
 	c->name = name;
-	GLint *ret = (GLint *)send_data(GLSC_glGetUniformLocation, (void *)c, sizeof(gl_glGetUniformLocation_t));
-	return (GLenum)*ret;
+	zmq::message_t result = send_data(GLSC_glGetUniformLocation, (void *)c, sizeof(gl_glGetUniformLocation_t));
+	GLint *ret = (GLint *) result.data();
+	return (GLint)*ret;
 	// std::cout << __func__ << std::endl;
 }
 void glGetVertexAttribfv(GLuint index, GLenum pname, GLfloat *params) {
@@ -1457,23 +1448,20 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
 	c->height = height;
 	c->format = format;
 	c->type = type;
-	void *data = send_data(GLSC_glReadPixels, (void *)c, sizeof(gl_glReadPixels_t));
+	zmq::message_t result = send_data(GLSC_glReadPixels, (void *)c, sizeof(gl_glReadPixels_t));
+	void *data = result.data();
 	size_t size = 0;
 	switch (type) {
 		case GL_UNSIGNED_BYTE: {
 			if (format == GL_RGBA) {
 				size = width * height * 4;
-				// std::cout << __func__ << std::endl;
 			} else if (format == GL_RGB) {
 				size = width * height * 3;
-				// std::cout << __func__ << std::endl;
 			}
 			break;
-			// std::cout << __func__ << std::endl;
 		}
 		default:
 			break;
-			// std::cout << __func__ << std::endl;
 	}
 	memcpy(pixels, data, size);
 	// std::cout << __func__ << std::endl;
@@ -1856,10 +1844,16 @@ void glGetIntegeri_v(GLenum target, GLuint index, GLint *data) {
 	std::cout << __func__ << std::endl;
 }
 void glBeginTransformFeedback(GLenum primitiveMode) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glBeginTransformFeedback);
+	c->cmd = GLSC_glBeginTransformFeedback;
+	c->primitiveMode = primitiveMode;
+	send_data(GLSC_glBeginTransformFeedback, (void *)c, sizeof(gl_glBeginTransformFeedback_t));
+	// std::cout << __func__ << std::endl;
 }
 void glEndTransformFeedback(void) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glEndTransformFeedback);
+	c->cmd = GLSC_glEndTransformFeedback;
+	send_data(GLSC_glEndTransformFeedback, (void *)c, sizeof(gl_glEndTransformFeedback_t));
 }
 void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
 	std::cout << __func__ << std::endl;
@@ -1874,7 +1868,13 @@ void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
 	// std::cout << __func__ << std::endl;
 }
 void glTransformFeedbackVaryings(GLuint program, GLsizei count, const GLchar *const *varyings, GLenum bufferMode) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glTransformFeedbackVaryings);
+	c->cmd = GLSC_glTransformFeedbackVaryings;
+	c->program = program;
+	c->count = count;
+	c->varyings = varyings;
+	c->bufferMode = bufferMode;
+	send_data(GLSC_glTransformFeedbackVaryings, (void *)c, sizeof(gl_glTransformFeedbackVaryings_t));
 }
 void glGetTransformFeedbackVarying(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLsizei *size, GLenum *type, GLchar *name) {
 	std::cout << __func__ << std::endl;
@@ -1909,7 +1909,11 @@ GLint glGetFragDataLocation(GLuint program, const GLchar *name) {
 	// std::cout << __func__ << std::endl;
 }
 void glUniform1ui(GLint location, GLuint v0) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glUniform1ui);
+	c->cmd = GLSC_glUniform4fv;
+	c->location = location;
+	c->v0 = v0;
+	send_data(GLSC_glUniform1ui, (void *)c, sizeof(gl_glUniform1ui_t));
 }
 void glUniform2ui(GLint location, GLuint v0, GLuint v1) {
 	std::cout << __func__ << std::endl;
@@ -1955,7 +1959,8 @@ const GLubyte *glGetStringi(GLenum name, GLuint index) {
 	c->cmd = GLSC_glGetStringi;
 	c->name = name;
 	c->index = index;
-	std::string ret = send_data_get_string(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t));
+	zmq::message_t result = send_data(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t));
+	std::string ret = result.to_string();
 	// const GLubyte *ret = reinterpret_cast<const GLubyte *>(send_data(GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t)));
 	// std::cout << ret.c_str() << std::endl;
 	return reinterpret_cast<const GLubyte *>(ret.c_str());
@@ -1975,8 +1980,9 @@ GLuint glGetUniformBlockIndex(GLuint program, const GLchar *uniformBlockName) {
 	c->cmd = GLSC_glGetUniformBlockIndex;
 	c->program = program;
 	c->name = uniformBlockName;
-	GLint *ret = (GLint *)send_data(GLSC_glGetUniformBlockIndex, (void *)c, sizeof(gl_glGetUniformBlockIndex_t));
-	return (GLenum)*ret;
+	zmq::message_t result = send_data(GLSC_glGetUniformBlockIndex, (void *)c, sizeof(gl_glGetUniformBlockIndex_t));
+	GLuint *ret = (GLuint *) result.data();
+	return (GLuint)*ret;
 	// std::cout << __func__ << std::endl;
 }
 void glGetActiveUniformBlockiv(GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint *params) {
@@ -1995,7 +2001,15 @@ void glUniformBlockBinding(GLuint program, GLuint uniformBlockIndex, GLuint unif
 	// std::cout << __func__ << std::endl;
 }
 void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDrawArraysInstanced);
+	c->cmd = GLSC_glDrawArraysInstanced;
+	c->mode = mode;
+	c->first = first;
+	c->count = count;
+	c->instancecount = instancecount;
+	send_data(GLSC_glDrawArraysInstanced, (void *)c, sizeof(gl_glDrawArraysInstanced_t));
+	
+	// std::cout << __func__ << std::endl;
 }
 void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount) {
 	std::cout << __func__ << std::endl;
@@ -2063,7 +2077,12 @@ void glGetSamplerParameterfv(GLuint sampler, GLenum pname, GLfloat *params) {
 	std::cout << __func__ << std::endl;
 }
 void glVertexAttribDivisor(GLuint index, GLuint divisor) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glVertexAttribDivisor);
+	c->cmd = GLSC_glVertexAttribDivisor;
+	c->index = index;
+	c->divisor = divisor;
+	send_data(GLSC_glVertexAttribDivisor, (void *)c, sizeof(gl_glVertexAttribDivisor_t));
+	// std::cout << __func__ << std::endl;
 }
 void glBindTransformFeedback(GLenum target, GLuint id) {
 	std::cout << __func__ << std::endl;

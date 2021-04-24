@@ -59,6 +59,7 @@ enum GL_Server_Command {
 	GLSC_glTexParameterf,
 	GLSC_glUniform4fv,
 	GLSC_glUniformMatrix4fv,
+	GLSC_glUniform1ui,
 	GLSC_glUniform2fv,
 	GLSC_glBindBufferBase,
 	GLSC_glColorMask,
@@ -91,6 +92,11 @@ enum GL_Server_Command {
 	GLSC_glBufferSubData,
 	GLSC_glBindAttribLocation,
 	GLSC_glCompressedTexImage2D,
+	GLSC_glBeginTransformFeedback,
+	GLSC_glEndTransformFeedback,
+	GLSC_glVertexAttribDivisor,
+	GLSC_glDrawArraysInstanced,
+	GLSC_glTransformFeedbackVaryings,
 };
 
 typedef struct {
@@ -361,7 +367,7 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-} gl_glFlush_t, gl_glCreateProgram_t, gl_glEnd_t, gl_glBreak_t, gl_glGetError_t;
+} gl_glFlush_t, gl_glCreateProgram_t, gl_glEnd_t, gl_glBreak_t, gl_glGetError_t, gl_glEndTransformFeedback_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -438,6 +444,12 @@ typedef struct {
 	GLuint index;
 	const GLfloat *v;
 } gl_glVertexAttrib4fv_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLint location;
+	GLuint v0;
+} gl_glUniform1ui_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -639,3 +651,30 @@ typedef struct {
 	GLuint index;
 	const GLchar *name;
 } gl_glBindAttribLocation_t;
+
+typedef struct{
+	unsigned int cmd;
+	GLenum primitiveMode;
+} gl_glBeginTransformFeedback_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLuint index;
+	GLuint divisor;
+} gl_glVertexAttribDivisor_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum mode;
+	GLint first;
+	GLsizei count;
+	GLsizei instancecount;
+} gl_glDrawArraysInstanced_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLuint program;
+	GLsizei count;
+	const GLchar *const *varyings;
+	GLenum bufferMode;
+} gl_glTransformFeedbackVaryings_t;
