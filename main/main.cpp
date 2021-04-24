@@ -317,6 +317,11 @@ void Main::print_help(const char *p_binary) {
 	}
 	OS::get_singleton()->print(").\n");
 #endif
+#ifdef GLREMOTE
+	OS::get_singleton()->print("splab remote opengl:\n");
+	OS::get_singleton()->print("--address <ip>			remote gl server address\n");
+	OS::get_singleton()->print("--port <port>			remote gl server port\n");
+#endif
 }
 
 /* Engine initialization
@@ -849,7 +854,17 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			OS::get_singleton()->disable_crash_handler();
 		} else if (I->get() == "--skip-breakpoints") {
 			skip_breakpoints = true;
-		} else {
+		} else if (I->get() == "--address"){
+			if (I->next()) {
+				GLOBAL_DEF("remote_gl/address", I->next()->get());
+				fixed_fps = I->next()->get().to_int();
+				N = I->next()->next();
+			} else {
+				OS::get_singleton()->print("Missing ip address argument, aborting.\n");
+				goto error;
+			}
+		}
+		else {
 			main_args.push_back(I->get());
 		}
 
@@ -1280,19 +1295,13 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	zmq_server->init_zmq();
-	// zmq_server->log();
-
-	// zmq_server->socket.connect("tcp://127.0.0.1:12345");
-
-	// struct test {
-	// 	unsigned int cmd = 999;
-	// 	int size = 0;
-	// } test_t;
-
-	// zmq::message_t msg(sizeof(test_t));
-	// memcpy(msg.data(), &test_t, sizeof(test_t));
-	// zmq_server->socket.send(msg, zmq::send_flags::none);
-	// zmq_server->socket.recv(msg, zmq::recv_flags::none);
+	String address = GLOBAL_GET("remote_gl/address");
+	std::string converted_addr;
+	for(int i=0; i < address.size(); i++){
+		converted_addr += address.get(i);
+	}
+	print_line(converted_addr.c_str());
+	zmq_server->socket.connect(converted_addr.c_str()); // connect here
 
 #if !defined(NO_THREADS)
 	if (p_main_tid_override) {
