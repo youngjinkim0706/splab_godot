@@ -19,7 +19,6 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size) {
 
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 
-
 	gl_command_t c = {
 		cmd, size
 	};

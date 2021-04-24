@@ -16,7 +16,7 @@ if env["platform"] in ["haiku", "osx", "windows", "x11"]:
     env.Append(CPPDEFINES=["GLES_OVER_GL"])
     env.Append(CPPDEFINES=["GLREMOTE"])
     # env.Append(CPPDEFINES=["NO_THREADS"])
-    # env.Append(CPPDEFINES=["GLREMOTE_DEBUG"])
+    env.Append(CPPDEFINES=["GLREMOTE_DEBUG"])
 
     env_thirdparty = env.Clone()
     env_thirdparty.disable_warnings()
