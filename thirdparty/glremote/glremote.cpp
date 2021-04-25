@@ -14,7 +14,8 @@
 
 GLint global_pack_alignment = 4;
 GLint global_unpack_alignment = 4;
-
+auto start = std::chrono::steady_clock::now();
+int command_per_frame = 0;
 zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size) {
 
 	ZMQServer *zmq_server = ZMQServer::get_instance();
@@ -24,9 +25,8 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size) {
 	};
 	zmq::message_t msg(sizeof(c));
 	// std::cout << cmd << std::endl;
-#ifdef GLREMOTE_DEBUG
-	auto start = std::chrono::steady_clock::now();
-#endif //GLREMOTE_DEBUG
+// #ifdef GLREMOTE_DEBUG
+// #endif //GLREMOTE_DEBUG
 	switch (cmd) {
 		case GLSC_glClearBufferfv: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
@@ -250,9 +250,60 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size) {
 			gl_glUniform2fv_t *more_data = (gl_glUniform2fv_t *)cmd_data;
 			zmq::message_t buffer_data;
 			if (more_data->value != NULL) {
-				buffer_data.rebuild(more_data->count * 2);
-				memcpy(buffer_data.data(), more_data->value, more_data->count * 4);
+				buffer_data.rebuild(more_data->count * sizeof(GLfloat) * 2);
+				memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLfloat));
 			}
+			zmq_server->socket.send(buffer_data, zmq::send_flags::none);
+			zmq_server->socket.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+		case GLSC_glDrawBuffers: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glDrawBuffers_t *more_data = (gl_glDrawBuffers_t *)cmd_data;
+			zmq::message_t buffer_data;
+			buffer_data.rebuild(more_data->n * sizeof(GLenum));
+			memcpy(buffer_data.data(), more_data->bufs, more_data->n * sizeof(GLenum));
+
+			zmq_server->socket.send(buffer_data, zmq::send_flags::none);
+			zmq_server->socket.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+		case GLSC_glDeleteVertexArrays: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glDeleteVertexArrays_t *more_data = (gl_glDeleteVertexArrays_t *)cmd_data;
+			zmq::message_t buffer_data;
+			buffer_data.rebuild(more_data->n * sizeof(GLuint));
+			memcpy(buffer_data.data(), more_data->arrays, more_data->n * sizeof(GLuint));
+
+			zmq_server->socket.send(buffer_data, zmq::send_flags::none);
+			zmq_server->socket.recv(msg, zmq::recv_flags::none);
+			break;
+		}
+		case GLSC_glDeleteBuffers: {
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
+
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
+
+			gl_glDeleteBuffers_t *more_data = (gl_glDeleteBuffers_t *)cmd_data;
+			zmq::message_t buffer_data;
+			buffer_data.rebuild(more_data->n * sizeof(GLuint));
+			memcpy(buffer_data.data(), more_data->buffers, more_data->n * sizeof(GLuint));
+
 			zmq_server->socket.send(buffer_data, zmq::send_flags::none);
 			zmq_server->socket.recv(msg, zmq::recv_flags::none);
 			break;
@@ -601,6 +652,14 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size) {
 
 			zmq_server->socket.send(msg, zmq::send_flags::none); // send cmd
 			zmq_server->socket.recv(msg, zmq::recv_flags::none);
+
+			auto end = std::chrono::steady_clock::now();
+
+			std::cout << "a frame: " << cmd << " Elapsed time in microseconds: "
+			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+			  << " µs\t cmd per frame:" << command_per_frame <<std::endl;
+			command_per_frame = 0;
+			start = std::chrono::steady_clock::now();
 			break;
 		}
 		default: {
@@ -616,14 +675,11 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size) {
 			break;
 		}
 	}
-#ifdef GLREMOTE_DEBUG
-	auto end = std::chrono::steady_clock::now();
+// #ifdef GLREMOTE_DEBUG
 
-	std::cout << "glcmd: " << cmd << " Elapsed time in microseconds: "
-			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
-			  << " µs" << std::endl;
-#endif // GLREMOTE_DEBUG
+// #endif // GLREMOTE_DEBUG
 	// zmq_server->socket.close();
+	command_per_frame++;
 	return msg;
 }
 
@@ -817,7 +873,7 @@ void glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage
 void glGenVertexArrays(GLsizei n, GLuint *arrays) {
 	GL_SET_COMMAND(c, glGenVertexArrays);
 	c->cmd = GLSC_glGenVertexArrays;
-	c->n = n;
+	c->n = n;	
 	zmq::message_t result = send_data(GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t));
 	GLuint *ret = (GLuint *) result.data();
 	memcpy((void *)arrays, (void *)ret, sizeof(GLuint) * n);
@@ -1151,11 +1207,18 @@ void glCopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffse
 	// std::cout << __func__ << std::endl;
 }
 void glCullFace(GLenum mode) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glCullFace);
+	c->cmd = GLSC_glCullFace;
+	c->mode = mode;
+	send_data(GLSC_glCullFace, (void *)c, sizeof(gl_glCullFace_t));
 	// std::cout << __func__ << std::endl;
 }
 void glDeleteBuffers(GLsizei n, const GLuint *buffers) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDeleteBuffers);
+	c->cmd = GLSC_glDeleteBuffers;
+	c->n = n;
+	c->buffers = buffers;
+	send_data(GLSC_glDeleteBuffers, (void *)c, sizeof(gl_glDeleteBuffers_t));
 	// std::cout << __func__ << std::endl;
 }
 void glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers) {
@@ -1765,7 +1828,12 @@ void glGetBufferPointerv(GLenum target, GLenum pname, void **params) {
 	std::cout << __func__ << std::endl;
 }
 void glDrawBuffers(GLsizei n, const GLenum *bufs) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDrawBuffers);
+	c->cmd = GLSC_glDrawBuffers;
+	c->n = n;
+	c->bufs = bufs;
+	send_data(GLSC_glDrawBuffers, (void *)c, sizeof(gl_glDrawBuffers_t));
+	
 }
 void glUniformMatrix2x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
 	std::cout << __func__ << std::endl;
@@ -1830,7 +1898,11 @@ void glFlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length)
 	std::cout << __func__ << std::endl;
 }
 void glDeleteVertexArrays(GLsizei n, const GLuint *arrays) {
-	std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glDeleteVertexArrays);
+	c->cmd = GLSC_glDeleteVertexArrays;
+	c->n = n;
+	c->arrays = arrays;
+	send_data(GLSC_glDeleteVertexArrays, (void *)c, sizeof(gl_glDeleteVertexArrays_t));
 }
 GLboolean glIsVertexArray(GLuint array) {
 	return 0;

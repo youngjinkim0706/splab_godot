@@ -97,6 +97,10 @@ enum GL_Server_Command {
 	GLSC_glVertexAttribDivisor,
 	GLSC_glDrawArraysInstanced,
 	GLSC_glTransformFeedbackVaryings,
+	GLSC_glCullFace,
+	GLSC_glDrawBuffers,
+	GLSC_glDeleteVertexArrays,
+	GLSC_glDeleteBuffers,
 };
 
 typedef struct {
@@ -678,3 +682,26 @@ typedef struct {
 	const GLchar *const *varyings;
 	GLenum bufferMode;
 } gl_glTransformFeedbackVaryings_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLenum mode;
+} gl_glCullFace_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLsizei n;
+	const GLenum *bufs;
+} gl_glDrawBuffers_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLsizei n;
+	const GLuint *arrays;
+} gl_glDeleteVertexArrays_t;
+
+typedef struct {
+	unsigned int cmd;
+	GLsizei n;
+	const GLuint *buffers;
+} gl_glDeleteBuffers_t;
