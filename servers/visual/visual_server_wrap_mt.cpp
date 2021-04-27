@@ -92,15 +92,18 @@ void VisualServerWrapMT::sync() {
 }
 
 void VisualServerWrapMT::draw(bool p_swap_buffers, double frame_step) {
-
+	
 	if (create_thread) {
 
 		draw_pending.increment();
 		command_queue.push(this, &VisualServerWrapMT::thread_draw, p_swap_buffers, frame_step);
 	} else {
-
+		auto start = std::chrono::steady_clock::now();
 		visual_server->draw(p_swap_buffers, frame_step);
+		auto end = std::chrono::steady_clock::now();
+		print_line("VisualServerWrapMT::draw:" + itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
 	}
+
 }
 
 void VisualServerWrapMT::init() {
