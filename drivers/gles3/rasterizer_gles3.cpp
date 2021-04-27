@@ -376,7 +376,7 @@ void RasterizerGLES3::output_lens_distorted_to_screen(RID p_render_target, const
 }
 
 void RasterizerGLES3::end_frame(bool p_swap_buffers) {
-
+	auto start = std::chrono::steady_clock::now();
 	if (OS::get_singleton()->is_layered_allowed()) {
 		if (!OS::get_singleton()->get_window_per_pixel_transparency_enabled()) {
 			//clear alpha
@@ -386,7 +386,9 @@ void RasterizerGLES3::end_frame(bool p_swap_buffers) {
 			glColorMask(true, true, true, true);
 		}
 	}
-
+	auto end = std::chrono::steady_clock::now();
+	print_line(itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+	
 	if (p_swap_buffers) {
 		// auto start = std::chrono::steady_clock::now();
 		// OS::get_singleton()->swap_buffers();
