@@ -24,7 +24,7 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 	gl_command_t c = {
 		cmd, size
 	};
-	// std::cout << cmd << std::endl;
+	std::cout << cmd << std::endl;
 
 	zmq::message_t msg(sizeof(c));
 	// #ifdef GLREMOTE_DEBUG
