@@ -773,9 +773,9 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 	}
 	// #ifdef GLREMOTE_DEBUG
 	auto end = std::chrono::steady_clock::now();
-	std::cout << "cmd: " << cmd << " Elapsed time in microseconds: "
-			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
-			  << " µs\t has return: " << hasReturn << std::endl;
+	// std::cout << "cmd: " << cmd << " Elapsed time in microseconds: "
+	// 		  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+	// 		  << " µs\t has return: " << hasReturn << std::endl;
 	// #endif // GLREMOTE_DEBUG
 
 	command_per_frame++;
