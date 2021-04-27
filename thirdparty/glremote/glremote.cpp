@@ -29,7 +29,7 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 
 	zmq::message_t msg(sizeof(c));
 	// #ifdef GLREMOTE_DEBUG
-	// auto start = std::chrono::steady_clock::now();
+	auto start = std::chrono::steady_clock::now();
 
 	// #endif //GLREMOTE_DEBUG
 	switch (cmd) {
@@ -772,10 +772,10 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 		}
 	}
 	// #ifdef GLREMOTE_DEBUG
-	// auto end = std::chrono::steady_clock::now();
-	// std::cout << "cmd: " << cmd << " Elapsed time in microseconds: "
-	// 		  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
-	// 		  << " µs\t has return: " << hasReturn << std::endl;
+	auto end = std::chrono::steady_clock::now();
+	std::cout << "cmd: " << cmd << " Elapsed time in microseconds: "
+			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+			  << " µs\t has return: " << hasReturn << std::endl;
 	// #endif // GLREMOTE_DEBUG
 
 	command_per_frame++;
