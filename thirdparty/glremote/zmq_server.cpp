@@ -9,7 +9,7 @@ void ZMQServer::log() {
 
 void ZMQServer::init_zmq() {
 	// ZMQServer::socket = zmq::socket_t(ZMQServer::ctx, zmq::socket_type::req);
-	ZMQServer::socket = zmq::socket_t(ZMQServer::ctx, zmq::socket_type::req);
+	ZMQServer::socket = zmq::socket_t(ZMQServer::ctx, zmq::socket_type::pair);
 }
 
 void ZMQServer::add_count() {
