@@ -28,7 +28,7 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 
 	zmq::message_t msg(sizeof(c));
 	// #ifdef GLREMOTE_DEBUG
-	auto start = std::chrono::steady_clock::now();
+	// auto start = std::chrono::steady_clock::now();
 
 	// #endif //GLREMOTE_DEBUG
 	switch (cmd) {
@@ -752,7 +752,7 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 				zmq_server->socket.recv(msg, zmq::recv_flags::none);
 
 			command_per_frame = 0;
-			start = std::chrono::steady_clock::now();
+			// start = std::chrono::steady_clock::now();
 			data_size = 0;
 			break;
 		}
@@ -771,10 +771,10 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 		}
 	}
 	// #ifdef GLREMOTE_DEBUG
-	auto end = std::chrono::steady_clock::now();
-	std::cout << "cmd: " << cmd << " Elapsed time in microseconds: "
-			  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
-			  << " µs\t has return: " << hasReturn << std::endl;
+	// auto end = std::chrono::steady_clock::now();
+	// std::cout << "cmd: " << cmd << " Elapsed time in microseconds: "
+	// 		  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+	// 		  << " µs\t has return: " << hasReturn << std::endl;
 	// #endif // GLREMOTE_DEBUG
 
 	command_per_frame++;
@@ -943,9 +943,17 @@ void glGenBuffers(GLsizei n, GLuint *buffers) {
 	GL_SET_COMMAND(c, glGenBuffers);
 	c->cmd = GLSC_glGenBuffers;
 	c->n = n;
-	zmq::message_t result = send_data(GLSC_glGenBuffers, (void *)c, sizeof(gl_glGenBuffers_t), true);
-	GLuint *ret = (GLuint *)result.data();
-	memcpy((void *)buffers, (void *)ret, sizeof(GLuint) * n);
+
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	GLuint *indices = new GLuint[n];
+	for (int i = 0; i < n; i++) {
+		zmq_server->glGenBuffers_i++;
+		indices[i] = zmq_server->glGenBuffers_i;
+	}
+	c->last_index = indices[n - 1];
+	send_data(GLSC_glGenBuffers, (void *)c, sizeof(gl_glGenBuffers_t));
+
+	memcpy((void *)buffers, (void *)indices, sizeof(GLuint) * n);
 	// std::cout << __func__ << std::endl;
 }
 
@@ -973,9 +981,17 @@ void glGenVertexArrays(GLsizei n, GLuint *arrays) {
 	GL_SET_COMMAND(c, glGenVertexArrays);
 	c->cmd = GLSC_glGenVertexArrays;
 	c->n = n;
-	zmq::message_t result = send_data(GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t), true);
-	GLuint *ret = (GLuint *)result.data();
-	memcpy((void *)arrays, (void *)ret, sizeof(GLuint) * n);
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	GLuint *indices = new GLuint[n];
+	for (int i = 0; i < n; i++) {
+		zmq_server->glGenVertexArrays_i++;
+		indices[i] = zmq_server->glGenVertexArrays_i;
+	}
+	c->last_index = indices[n - 1];
+	send_data(GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t));
+
+	memcpy((void *)arrays, (void *)indices, sizeof(GLuint) * n);
+
 	// std::cout << __func__ << std::endl;
 }
 
@@ -1079,9 +1095,16 @@ void glGenTextures(GLsizei n, GLuint *textures) {
 	GL_SET_COMMAND(c, glGenTextures);
 	c->cmd = GLSC_glGenTextures;
 	c->n = n;
-	zmq::message_t result = send_data(GLSC_glGenTextures, (void *)c, sizeof(gl_glGenTextures_t), true);
-	GLuint *ret = (GLuint *)result.data();
-	memcpy((void *)textures, (void *)ret, sizeof(GLuint) * n);
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	GLuint *indices = new GLuint[n];
+	for (int i = 0; i < n; i++) {
+		zmq_server->glGenTextures_i++;
+		indices[i] = zmq_server->glGenTextures_i;
+	}
+	c->last_index = indices[n - 1];
+	send_data(GLSC_glGenTextures, (void *)c, sizeof(gl_glGenTextures_t));
+
+	memcpy((void *)textures, (void *)indices, sizeof(GLuint) * n);
 	// std::cout << __func__ << std::endl;
 }
 void glActiveTexture(GLenum texture) {
@@ -1139,9 +1162,16 @@ void glGenFramebuffers(GLsizei n, GLuint *framebuffers) {
 	GL_SET_COMMAND(c, glGenFramebuffers);
 	c->cmd = GLSC_glGenFramebuffers;
 	c->n = n;
-	zmq::message_t result = send_data(GLSC_glGenFramebuffers, (void *)c, sizeof(gl_glGenFramebuffers_t), true);
-	GLuint *ret = (GLuint *)result.data();
-	memcpy((void *)framebuffers, (void *)ret, sizeof(GLuint) * n);
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	GLuint *indices = new GLuint[n];
+	for (int i = 0; i < n; i++) {
+		zmq_server->glGenFramebuffers_i++;
+		indices[i] = zmq_server->glGenFramebuffers_i;
+	}
+	c->last_index = indices[n - 1];
+	send_data(GLSC_glGenFramebuffers, (void *)c, sizeof(gl_glGenFramebuffers_t));
+
+	memcpy((void *)framebuffers, (void *)indices, sizeof(GLuint) * n);
 	// std::cout << __func__ << std::endl;
 }
 void glBindFramebuffer(GLenum target, GLuint framebuffer) {
@@ -1424,13 +1454,23 @@ void glFrontFace(GLenum mode) {
 	// std::cout << __func__ << std::endl;
 }
 void glGenRenderbuffers(GLsizei n, GLuint *renderbuffers) {
+	auto start = std::chrono::steady_clock::now();
 	GL_SET_COMMAND(c, glGenRenderbuffers);
 	c->cmd = GLSC_glGenRenderbuffers;
 	c->n = n;
-	zmq::message_t result = send_data(GLSC_glGenRenderbuffers, (void *)c, sizeof(gl_glGenRenderbuffers_t), true);
-	GLuint *ret = (GLuint *)result.data();
-	memcpy((void *)renderbuffers, (void *)ret, sizeof(GLuint) * n);
-	// std::cout << __func__ << std::endl;
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	GLuint *indices = new GLuint[n];
+	for (int i = 0; i < n; i++) {
+		zmq_server->glGenRenderbuffers_i++;
+		indices[i] = zmq_server->glGenRenderbuffers_i;
+	}
+	c->last_index = indices[n - 1];
+	send_data(GLSC_glGenRenderbuffers, (void *)c, sizeof(gl_glGenRenderbuffers_t));
+
+	memcpy((void *)renderbuffers, (void *)indices, sizeof(GLuint) * n);
+	auto end = std::chrono::steady_clock::now();
+	std::cout << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+			  << " µs" << std::endl;
 }
 void glGetActiveAttrib(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) {
 	std::cout << __func__ << std::endl;
@@ -1893,6 +1933,7 @@ void glCompressedTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint 
 }
 void glGenQueries(GLsizei n, GLuint *ids) {
 	std::cout << __func__ << std::endl;
+
 	// std::cout << __func__ << std::endl;
 }
 void glDeleteQueries(GLsizei n, const GLuint *ids) {

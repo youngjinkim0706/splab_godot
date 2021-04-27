@@ -26,6 +26,14 @@ public:
 		}
 		return _instance;
 	}
+	unsigned int glGenBuffers_i;
+	unsigned int glGenVertexArrays_i;
+	unsigned int glGenTextures_i;
+	unsigned int glGenFramebuffers_i;
+	unsigned int glGenRenderbuffers_i;
+	unsigned int glGenQueries_i;
+	unsigned int glGenSamplers_i;
+	unsigned int glGenTransformFeedbacks_i;
 
 	zmq::socket_t socket;
 	zmq::context_t ctx;
