@@ -101,15 +101,36 @@ void VisualServerRaster::draw(bool p_swap_buffers, double frame_step) {
 
 	changes = 0;
 
+	auto start = std::chrono::steady_clock::now();
 	VSG::rasterizer->begin_frame(frame_step);
-
+	auto end = std::chrono::steady_clock::now();
+	print_line("begin_frame:" + itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+	
+	start = std::chrono::steady_clock::now();
 	VSG::scene->update_dirty_instances(); //update scene stuff
-
+	end = std::chrono::steady_clock::now();
+	print_line("update_dirty_instances:" + itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+	
+	start = std::chrono::steady_clock::now();
 	VSG::viewport->draw_viewports();
-	VSG::scene->render_probes();
-	_draw_margins();
-	VSG::rasterizer->end_frame(p_swap_buffers);
+	end = std::chrono::steady_clock::now();
+	print_line("draw_viewports:" + itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
 
+	start = std::chrono::steady_clock::now();
+	VSG::scene->render_probes();
+	end = std::chrono::steady_clock::now();
+	print_line("render_probes:" + itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+
+	start = std::chrono::steady_clock::now();
+	_draw_margins();
+	end = std::chrono::steady_clock::now();
+	print_line("_draw_margins:" + itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+
+	start = std::chrono::steady_clock::now();
+	VSG::rasterizer->end_frame(p_swap_buffers);
+	end = std::chrono::steady_clock::now();
+	print_line("end_frame:" + itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+	
 	while (frame_drawn_callbacks.front()) {
 
 		Object *obj = ObjectDB::get_instance(frame_drawn_callbacks.front()->get().object);
