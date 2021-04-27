@@ -388,10 +388,10 @@ void RasterizerGLES3::end_frame(bool p_swap_buffers) {
 	}
 
 	if (p_swap_buffers) {
-		auto start = std::chrono::steady_clock::now();
-		OS::get_singleton()->swap_buffers();
-		auto end = std::chrono::steady_clock::now();
-		print_line(itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
+		// auto start = std::chrono::steady_clock::now();
+		// OS::get_singleton()->swap_buffers();
+		// auto end = std::chrono::steady_clock::now();
+		// print_line(itos(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()));
 		glSwapBuffer(); // yjkim
 	} else
 		glFinish();
