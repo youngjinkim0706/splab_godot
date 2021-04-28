@@ -26,8 +26,8 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 	gl_command_t c = {
 		cmd, size
 	};
-	if (hasReturn)
-		std::cout << cmd << std::endl;
+	// if (hasReturn)
+	// 	std::cout << cmd << std::endl;
 
 	zmq::message_t msg(sizeof(c));
 	// #ifdef GLREMOTE_DEBUG
@@ -858,7 +858,7 @@ void glSwapBuffer() {
 	gl_command_t *c = (gl_command_t *)malloc(sizeof(gl_command_t));
 	c->cmd = GLSC_bufferSwap;
 	c->size = sizeof(gl_command_t);
-	send_data(GLSC_bufferSwap, (void *)c, sizeof(gl_command_t));
+	send_data(GLSC_bufferSwap, (void *)c, sizeof(gl_command_t), true);
 	// std::cout << __func__ << std::endl;
 }
 GLuint glCreateShader(GLenum type) {
