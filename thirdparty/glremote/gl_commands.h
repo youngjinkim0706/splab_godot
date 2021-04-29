@@ -519,14 +519,8 @@ typedef struct {
 typedef struct {
 	unsigned int cmd;
 	GLsizei n;
-	GLuint *buffers;
-} gl_glGenBuffers_t, gl_glGenFramebuffers_t, gl_glGenRenderbuffers_t;
-
-typedef struct {
-	unsigned int cmd;
-	int n;
-	GLuint *buffers;
-} gl_glGenTextures_t;
+	unsigned int last_index;
+} gl_glGenTextures_t, gl_glGenBuffers_t, gl_glGenFramebuffers_t, gl_glGenRenderbuffers_t, gl_glGenVertexArrays_t, gl_glGenQueries_t, gl_glGenSamplers_t, gl_glGenTransformFeedbacks_t;
 
 typedef struct {
 	unsigned int cmd;
@@ -604,12 +598,6 @@ typedef struct {
 
 typedef struct {
 	unsigned int cmd;
-	GLsizei n;
-	GLuint *arrays;
-} gl_glGenVertexArrays_t;
-
-typedef struct {
-	unsigned int cmd;
 	GLuint array;
 } gl_glBindVertexArray_t;
 
@@ -656,7 +644,7 @@ typedef struct {
 	const GLchar *name;
 } gl_glBindAttribLocation_t;
 
-typedef struct{
+typedef struct {
 	unsigned int cmd;
 	GLenum primitiveMode;
 } gl_glBeginTransformFeedback_t;

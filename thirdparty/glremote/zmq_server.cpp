@@ -10,6 +10,14 @@ void ZMQServer::log() {
 void ZMQServer::init_zmq() {
 	// ZMQServer::socket = zmq::socket_t(ZMQServer::ctx, zmq::socket_type::req);
 	ZMQServer::socket = zmq::socket_t(ZMQServer::ctx, zmq::socket_type::pair);
+	glGenBuffers_i = 0;
+	glGenVertexArrays_i = 0;
+	glGenTextures_i = 0;
+	glGenFramebuffers_i = 0;
+	glGenRenderbuffers_i = 0;
+	glGenQueries_i = 0;
+	glGenSamplers_i = 0;
+	glGenTransformFeedbacks_i = 0;
 }
 
 void ZMQServer::add_count() {
