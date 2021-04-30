@@ -21,6 +21,8 @@ size_t more_size = 0;
 size_t msg_size = 0;
 auto start = std::chrono::steady_clock::now();
 
+std::map<std::string, std::size_t> command_cache;
+
 zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasReturn = false) {
 
 	ZMQServer *zmq_server = ZMQServer::get_instance();
@@ -845,7 +847,7 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 			if (hasReturn)
 				zmq_server->socket.recv(msg, zmq::recv_flags::none);
 
-			std::cout << "----- per frame data --------  " << total_size << std::endl;
+			// std::cout << "----- per frame data --------  " << total_size << std::endl;
 			auto end = std::chrono::steady_clock::now();
 			// std::cout << "cmd: " << cmd << " Elapsed time in microseconds: "
 			// 	  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
@@ -858,14 +860,40 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 		default: {
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			msg_size += msg.size();
-			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
+			zmq_server->socket.send(msg, zmq::send_flags::sndmore); // cmnd
+			zmq::message_t data_msg;
+			bool hit = false;
+			if (cmd == GLSC_glEnable) {
+				gl_glEnable_t *tmp = (gl_glEnable_t *)cmd_data;
+				zmq::message_t data_msg(size);
+				memcpy(data_msg.data(), cmd_data, size);
 
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			data_size += data_msg.size();
-			total_size += msg_size + data_size + more_size;
+				std::size_t hashed_data = std::hash<std::string>{}(data_msg.to_string());
+				std::string key = std::to_string(cmd) + "_" + std::to_string(command_per_frame);
+				if (command_cache.find(key) == command_cache.end()) {
+					command_cache.insert(std::make_pair(key, hashed_data));
+				} else {
+					if (command_cache.find(key)->second == hashed_data) {
+						hit = true;
+						data_msg.rebuild(0);
+					} else {
+						command_cache.insert(std::make_pair(key, hashed_data));
+					}
+				}
+				if (hit) {
+					std::cout << "hit!! key: " << key << " data: " << tmp->cap << " data hash:" << command_cache.find(key)->second << " data size:" << data_msg.size() << std::endl;
+				} else {
+					std::cout << "missed!! key: " << key << " data: " << tmp->cap << " data hash:" << hashed_data << " data size:" << data_msg.size() << std::endl;
+				}
+				zmq_server->socket.send(data_msg, zmq::send_flags::none); // data
 
-			zmq_server->socket.send(data_msg, zmq::send_flags::none);
+			} else {
+				zmq::message_t data_msg(size);
+				memcpy(data_msg.data(), cmd_data, size);
+				data_size += data_msg.size();
+				total_size += msg_size + data_size + more_size;
+				zmq_server->socket.send(data_msg, zmq::send_flags::none); // data
+			}
 			if (hasReturn)
 				zmq_server->socket.recv(msg, zmq::recv_flags::none);
 
@@ -878,7 +906,7 @@ zmq::message_t send_data(unsigned int cmd, void *cmd_data, int size, bool hasRet
 	// 		  << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
 	// 		  << " µs\t has return: " << hasReturn << std::endl;
 	// #endif // GLREMOTE_DEBUG
-	std::cout << "cmd: " << cmd << "  msg: " << msg_size << "  data: " << data_size << "  more_data: " << more_size << std::endl;
+	// std::cout << "cmd: " << cmd << "  msg: " << msg_size << "  data: " << data_size << "  more_data: " << more_size << std::endl;
 	msg_size = 0;
 	data_size = 0;
 	more_size = 0;
