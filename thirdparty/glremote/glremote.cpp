@@ -95,12 +95,14 @@ bool insert_or_check_cache(std::map<cache_key, std::size_t> &cache, cache_key ke
 	auto res = cache.insert(std::make_pair(key, hashed_data));
 	
 	// true : missed, false : hit
-	if (!res.second){
-		if(res.first->second == hashed_data){
-			cache_hit++;
-			cached = true;
-		}
-	}
+	// if (!res.second){
+	// 	if(res.first->second == hashed_data){
+	// 		cache_hit++;
+	// 		cached = true;
+	// 		return cached;
+	// 	}
+	// }
+	total_size += data_msg.size();
 	return cached;
 }
 
@@ -114,13 +116,14 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 	// if (hasReturn)
 
 	zmq::message_t msg(sizeof(c));
+	total_size += msg.size();
+
 	cache_key key = cache_key_gen(cmd, sequence_number);	
 
 	switch (cmd) {
 		case (unsigned char) GL_Server_Command::GLSC_glClearBufferfv: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -130,7 +133,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -141,7 +143,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				buffer_data.rebuild(0);	
 			}
-			more_data_size += buffer_data.size();
 			zmq_server->socket.send(buffer_data, zmq::send_flags::none);
 			
 			// wait recv if hasReturn true
@@ -153,7 +154,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glDeleteFramebuffers: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -163,7 +163,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -174,7 +173,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				buffer_data.rebuild(0);	
 			}
-			more_data_size += buffer_data.size();
 			zmq_server->socket.send(buffer_data, zmq::send_flags::none);
 
 			if (hasReturn)
@@ -185,7 +183,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glDeleteRenderbuffers: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -195,7 +192,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -217,7 +213,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glDeleteTextures: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -227,7 +222,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -249,7 +243,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glShaderSource: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -281,7 +274,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glTransformFeedbackVaryings: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -314,7 +306,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glBufferData: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -324,7 +315,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -338,7 +328,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 					buffer_data.rebuild(0);	
 				}
 			}	
-			more_data_size += buffer_data.size();		
 			zmq_server->socket.send(buffer_data, zmq::send_flags::none);
 
 			if (hasReturn)
@@ -349,7 +338,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glBufferSubData: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -359,7 +347,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -384,7 +371,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glUniformMatrix4fv: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -394,7 +380,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -419,7 +404,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glUniform4fv: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -429,7 +413,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -454,7 +437,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glVertexAttrib4fv: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -464,7 +446,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -489,7 +470,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glUniform2fv: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -499,7 +479,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -524,7 +503,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glDrawBuffers: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -534,7 +512,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -556,7 +533,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glDeleteVertexArrays: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -566,7 +542,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -588,7 +563,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glDeleteBuffers: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -598,7 +572,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -620,7 +593,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glGetAttribLocation: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -630,7 +602,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -652,7 +623,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glBindAttribLocation: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -662,7 +632,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -684,7 +653,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glGetUniformLocation: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -694,7 +662,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -716,7 +683,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glGetUniformBlockIndex: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -726,7 +692,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -748,7 +713,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glTexSubImage2D: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -758,7 +722,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 			
 			// send more data
@@ -785,7 +748,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glTexImage2D: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -795,7 +757,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 			
 			// send more data
@@ -822,7 +783,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glCompressedTexImage2D: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -832,7 +792,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			gl_glCompressedTexImage2D_t *more_data = (gl_glCompressedTexImage2D_t *)cmd_data;
@@ -856,7 +815,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glTexSubImage3D: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -866,7 +824,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 
 			// send more data
@@ -892,7 +849,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		case (unsigned char) GL_Server_Command::GLSC_glTexImage3D: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -902,7 +858,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);	
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 			
 			// send more data	
@@ -943,7 +898,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 		default: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
-			cmd_size += msg.size();
 			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
 
 			// send data
@@ -954,7 +908,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if(is_cached){
 				data_msg.rebuild(0);
 			}
-			data_size += data_msg.size();
 			zmq_server->socket.send(data_msg, zmq::send_flags::none);
 			
 			if (hasReturn)
@@ -965,10 +918,8 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 	}
 	auto current_time = std::chrono::steady_clock::now();
 	if (std::chrono::duration_cast<std::chrono::seconds>(current_time - last_time).count() >=1){
-		std::cout << "----- data :" << cmd_size <<":" << data_size <<":"<< more_data_size << ":" << cmd_size + data_size + more_data_size <<std::endl;
-		cmd_size = 0;
-		data_size = 0;
-		more_data_size = 0;
+		std::cout << "----- data :" << total_size <<std::endl;
+		total_size = 0;
 		last_time = current_time;
 	}
 
