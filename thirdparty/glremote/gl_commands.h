@@ -105,17 +105,14 @@ enum class GL_Server_Command: unsigned char {
 };
 
 typedef struct {
-
 	GLenum cap;
 } gl_glDisable_t, gl_glEnable_t;
 
 typedef struct {
-	
 	GLenum func;
 } gl_glDepthFunc_t;
 
 typedef struct {
-	
 	GLenum target;
 	GLint levels;
 	GLint internalformat;
@@ -367,7 +364,7 @@ typedef struct {
 
 typedef struct {
 	
-} gl_glFlush_t, gl_glCreateProgram_t, gl_glBreak_t, gl_glSwapBuffer_t, gl_glEnd_t, gl_glBreak_t, gl_glGetError_t, gl_glEndTransformFeedback_t;
+} gl_glFlush_t, gl_glCreateProgram_t, gl_glBreak_t, gl_glSwapBuffer_t, gl_glEnd_t, gl_glGetError_t, gl_glEndTransformFeedback_t;
 
 typedef struct {
 	
