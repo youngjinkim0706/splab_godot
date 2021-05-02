@@ -97,17 +97,17 @@ bool insert_or_check_cache(std::map<cache_key, std::size_t> &cache, cache_key ke
 	auto res = cache.insert(std::make_pair(key, hashed_data));
 
 	// true : missed, false : hit
-	// if (!res.second) {
-	// 	if (res.first->second == hashed_data) {
-	// 		cache_hit++;
-	// 		cached = true;
-	// 		return cached;
-	// 	}
-	// }
-	// if (data_msg.size() > prev_data_size) {
-	// 	// std::cout << std::bitset<32>(key) << "is the champion " << data_msg.size() << std::endl;
-	// 	prev_data_size = data_msg.size();
-	// }
+	if (!res.second) {
+		if (res.first->second == hashed_data) {
+			cache_hit++;
+			cached = true;
+			return cached;
+		}
+	}
+	if (data_msg.size() > prev_data_size) {
+		// std::cout << std::bitset<32>(key) << "is the champion " << data_msg.size() << std::endl;
+		prev_data_size = data_msg.size();
+	}
 	total_size += data_msg.size();
 	return cached;
 }
