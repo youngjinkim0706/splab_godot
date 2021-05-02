@@ -504,6 +504,39 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 
 			break;
 		}
+		case (unsigned char) GL_Server_Command::GLSC_glUniform1iv: {
+			// send cmd
+			memcpy(msg.data(), (void *)&c, sizeof(c));
+			zmq_server->socket.send(msg, zmq::send_flags::sndmore); 
+
+			// send data
+			zmq::message_t data_msg(size);
+			memcpy(data_msg.data(), cmd_data, size);
+			bool is_cached = insert_or_check_cache(data_cache, key, data_msg);
+			if(is_cached){
+				data_msg.rebuild(0);	
+			}
+			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
+
+			// send more data
+			gl_glUniform1iv_t *more_data = (gl_glUniform1iv_t *)cmd_data;
+			zmq::message_t buffer_data;
+			if (more_data->value != NULL) {
+				buffer_data.rebuild(more_data->count * sizeof(GLint) * 1);
+				memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLint));
+				is_cached = insert_or_check_cache(more_data_cache, key, buffer_data);
+				if(is_cached){
+					buffer_data.rebuild(0);	
+				}
+			}
+			more_data_size += buffer_data.size();
+			zmq_server->socket.send(buffer_data, zmq::send_flags::none);	
+
+			if (hasReturn)
+				zmq_server->socket.recv(msg, zmq::recv_flags::none);
+
+			break;
+		}
 		case (unsigned char) GL_Server_Command::GLSC_glDrawBuffers: {
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
@@ -1904,8 +1937,11 @@ void glUniform1i(GLint location, GLint v0) {
 	// std::cout << __func__ << std::endl;
 }
 void glUniform1iv(GLint location, GLsizei count, const GLint *value) {
-	std::cout << __func__ << std::endl;
-	// std::cout << __func__ << std::endl;
+	GL_SET_COMMAND(c, glUniform1iv);
+	c->location = location;
+	c->count = count;
+	c->value = value;
+	send_data((unsigned char) GL_Server_Command::GLSC_glUniform1iv, (void *)c, sizeof(gl_glUniform1iv_t));
 }
 void glUniform2f(GLint location, GLfloat v0, GLfloat v1) {
 	std::cout << __func__ << std::endl;

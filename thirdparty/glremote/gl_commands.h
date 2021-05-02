@@ -102,6 +102,7 @@ enum class GL_Server_Command: unsigned char {
 	GLSC_glDrawBuffers,
 	GLSC_glDeleteVertexArrays,
 	GLSC_glDeleteBuffers,
+	GLSC_glUniform1iv,
 };
 
 typedef struct {
@@ -382,6 +383,12 @@ typedef struct {
 	GLint location;
 	GLfloat v0;
 } gl_glUniform1f_t;
+
+typedef struct {
+	GLint location;
+	GLsizei count;
+	const GLint * value;
+} gl_glUniform1iv_t;
 
 typedef struct {
 	
