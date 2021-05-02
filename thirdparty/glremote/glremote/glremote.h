@@ -4,3 +4,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <map>
+#include <bitset>
+
+typedef unsigned long cache_key;
