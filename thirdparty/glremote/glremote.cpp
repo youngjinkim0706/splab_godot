@@ -95,13 +95,13 @@ bool insert_or_check_cache(std::map<cache_key, std::size_t> &cache, cache_key ke
 	auto res = cache.insert(std::make_pair(key, hashed_data));
 	
 	// true : missed, false : hit
-	// if (!res.second){
-	// 	if(res.first->second == hashed_data){
-	// 		cache_hit++;
-	// 		cached = true;
-	// 		return cached;
-	// 	}
-	// }
+	if (!res.second){
+		if(res.first->second == hashed_data){
+			cache_hit++;
+			cached = true;
+			return cached;
+		}
+	}
 	total_size += data_msg.size();
 	return cached;
 }
