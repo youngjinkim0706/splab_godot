@@ -17,7 +17,7 @@ GLint global_unpack_alignment = 4;
 int sequence_number = 0;
 int cache_hit = 0;
 size_t total_size = 0;
-size_t data_size = 0;
+size_t prev_data_size = 0;
 size_t more_data_size = 0;
 size_t cmd_size = 0;
 
@@ -101,6 +101,10 @@ bool insert_or_check_cache(std::map<cache_key, std::size_t> &cache, cache_key ke
 			cached = true;
 			return cached;
 		}
+	}
+	if(data_msg.size() > prev_data_size){
+		std::cout << std::bitset<32>(key) << "is the champion " << data_msg.size() << std::endl;
+		prev_data_size = data_msg.size();
 	}
 	total_size += data_msg.size();
 	return cached;
@@ -892,7 +896,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			float cache_hit_ratio = cache_hit / sequence_number;
 			sequence_number = 0;
 			cache_hit = 0;
-
+			prev_data_size = 0;
 			break;		
 		}
 		default: {
