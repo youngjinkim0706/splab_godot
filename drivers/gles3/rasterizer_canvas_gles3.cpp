@@ -1953,7 +1953,7 @@ void RasterizerCanvasGLES3::canvas_render_items_implementation(Item *p_item_list
 	ris.prev_distance_field = false;
 
 	glBindBuffer(GL_UNIFORM_BUFFER, state.canvas_item_ubo);
-	glBufferData(GL_UNIFORM_BUFFER, sizeof(CanvasItemUBO), &state.canvas_item_ubo_data, _buffer_upload_usage_flag);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(CanvasItemUBO), &state.canvas_item_ubo_data, _buffer_upload_usage_flag); // 80 bytes
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 	state.current_tex = RID();

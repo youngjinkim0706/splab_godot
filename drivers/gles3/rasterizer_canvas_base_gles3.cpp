@@ -95,7 +95,7 @@ RID RasterizerCanvasBaseGLES3::light_internal_create() {
 
 	glGenBuffers(1, &li->ubo);
 	glBindBuffer(GL_UNIFORM_BUFFER, li->ubo);
-	glBufferData(GL_UNIFORM_BUFFER, sizeof(LightInternal::UBOData), &state.canvas_item_ubo_data, GL_DYNAMIC_DRAW);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(LightInternal::UBOData), &state.canvas_item_ubo_data, GL_DYNAMIC_DRAW); //256 bytes
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 	return light_internal_owner.make_rid(li);
@@ -129,7 +129,7 @@ void RasterizerCanvasBaseGLES3::light_internal_update(RID p_rid, Light *p_light)
 	li->ubo_data.shadow_distance_mult = (p_light->radius_cache * 1.1);
 
 	glBindBuffer(GL_UNIFORM_BUFFER, li->ubo);
-	glBufferData(GL_UNIFORM_BUFFER, sizeof(LightInternal::UBOData), &li->ubo_data, GL_DYNAMIC_DRAW);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(LightInternal::UBOData), &li->ubo_data, GL_DYNAMIC_DRAW); // 256 bytes
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
@@ -928,8 +928,8 @@ void RasterizerCanvasBaseGLES3::canvas_light_shadow_buffer_update(RID p_buffer, 
 					(p_light_xform.basis_determinant() * instance->xform_cache.basis_determinant()) < 0) {
 				transformed_cull_cache =
 						transformed_cull_cache == VS::CANVAS_OCCLUDER_POLYGON_CULL_CLOCKWISE ?
-								  VS::CANVAS_OCCLUDER_POLYGON_CULL_COUNTER_CLOCKWISE :
-								  VS::CANVAS_OCCLUDER_POLYGON_CULL_CLOCKWISE;
+								VS::CANVAS_OCCLUDER_POLYGON_CULL_COUNTER_CLOCKWISE :
+								VS::CANVAS_OCCLUDER_POLYGON_CULL_CLOCKWISE;
 			}
 
 			if (cull != transformed_cull_cache) {
@@ -1021,7 +1021,7 @@ void RasterizerCanvasBaseGLES3::reset_canvas() {
 	state.canvas_item_ubo_data.time = storage->frame.time[0];
 
 	glBindBuffer(GL_UNIFORM_BUFFER, state.canvas_item_ubo);
-	glBufferData(GL_UNIFORM_BUFFER, sizeof(CanvasItemUBO), &state.canvas_item_ubo_data, GL_DYNAMIC_DRAW);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(CanvasItemUBO), &state.canvas_item_ubo_data, GL_DYNAMIC_DRAW); // 80bytes
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 	state.canvas_texscreen_used = false;
@@ -1281,7 +1281,7 @@ void RasterizerCanvasBaseGLES3::initialize() {
 
 	glGenBuffers(1, &state.canvas_item_ubo);
 	glBindBuffer(GL_UNIFORM_BUFFER, state.canvas_item_ubo);
-	glBufferData(GL_UNIFORM_BUFFER, sizeof(CanvasItemUBO), &state.canvas_item_ubo_data, GL_DYNAMIC_DRAW);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof(CanvasItemUBO), &state.canvas_item_ubo_data, GL_DYNAMIC_DRAW); //80 bytes
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 	state.canvas_shader.init();

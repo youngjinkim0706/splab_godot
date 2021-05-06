@@ -3,7 +3,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <map>
 #include <bitset>
+#include <map>
 
-typedef unsigned long cache_key;
+typedef std::string cache_key;

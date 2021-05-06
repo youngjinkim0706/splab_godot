@@ -5192,7 +5192,7 @@ void RasterizerSceneGLES3::initialize() {
 
 		glGenBuffers(1, &state.directional_ubo);
 		glBindBuffer(GL_UNIFORM_BUFFER, state.directional_ubo);
-		glBufferData(GL_UNIFORM_BUFFER, sizeof(LightDataUBO), NULL, GL_DYNAMIC_DRAW);
+		glBufferData(GL_UNIFORM_BUFFER, sizeof(LightDataUBO), NULL, GL_DYNAMIC_DRAW); // 368 bytes
 		glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
 		state.max_forward_lights_per_object = MIN(state.max_ubo_lights, render_list.max_lights_per_object);
