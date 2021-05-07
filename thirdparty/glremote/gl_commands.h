@@ -346,6 +346,8 @@ typedef struct {
 
 typedef struct {
 	unsigned char cmd;
+	bool is_data_cached;
+	bool is_more_data_cached;
 } gl_command_t;
 
 typedef struct {
@@ -692,3 +694,7 @@ typedef struct {
 	GLsizei n;
 	const GLuint *buffers;
 } gl_glDeleteBuffers_t;
+
+typedef struct {
+	std::size_t hash_data;
+} gl_glCachedData_t;
