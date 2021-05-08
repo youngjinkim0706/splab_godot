@@ -12,4 +12,3 @@
 
 typedef std::string cache_key;
 typedef std::pair<std::pair<cache_key, std::size_t>, bool> cache_check;
-// typedef trie::trie_map<std::string, std::string> CMD_SEQ_BUFFER;
