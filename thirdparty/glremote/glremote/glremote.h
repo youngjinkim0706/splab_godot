@@ -7,7 +7,7 @@
 #include <bitset>
 #include <map>
 
-#define CACHE_THRESHOLD_SIZE 9 // 1 BYTE CMD AND 8 BYTE HASH
+#define CACHE_THRESHOLD_SIZE 65535 // 1 BYTE CMD AND 8 BYTE HASH
 #define CACHE_KEY_SIZE sizeof(size_t) * __CHAR_BIT__ + sizeof(unsigned char) * __CHAR_BIT__
 
 typedef std::string cache_key;
