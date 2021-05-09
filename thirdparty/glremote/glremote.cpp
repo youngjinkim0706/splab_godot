@@ -127,6 +127,7 @@ gl_glCachedData_t create_cache_data(unsigned char cmd, std::size_t hash_data) {
 
 bool create_cache_message(std::map<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &msg) {
 	bool is_cached = false;
+
 	if (msg.size() > CACHE_THRESHOLD_SIZE) {
 		auto cache_result = insert_or_check_cache(cache, cmd, msg);
 		if (cache_result.second) {
@@ -137,15 +138,26 @@ bool create_cache_message(std::map<cache_key, std::size_t> &cache, unsigned char
 		}
 	}
 	if (is_compress_enable) {
-		size_t before_comp = msg.size();
 		// compression
-		std::string compressed;
-		snappy::Compress(msg.to_string().c_str(), msg.size(), &compressed);
-		msg.rebuild(compressed.size());
-		memcpy(msg.data(), compressed.data(), compressed.size());
-		size_t after_comp = msg.size();
-
-		benefit += before_comp - after_comp;
+		switch (cmd) {
+			case (unsigned char)GL_Server_Command::GLSC_glTexSubImage2D:
+			case (unsigned char)GL_Server_Command::GLSC_glTexSubImage3D:
+			case (unsigned char)GL_Server_Command::GLSC_glBlitFramebuffer:
+			case (unsigned char)GL_Server_Command::GLSC_glTexImage2D:
+			case (unsigned char)GL_Server_Command::GLSC_glCompressedTexImage2D:
+			case (unsigned char)GL_Server_Command::GLSC_glBufferData:
+			case (unsigned char)GL_Server_Command::GLSC_glVertexAttribPointer:
+			case (unsigned char)GL_Server_Command::GLSC_glTexImage3D:
+			case (unsigned char)GL_Server_Command::GLSC_glUniformMatrix4fv: {
+				std::string compressed;
+				snappy::Compress(msg.to_string().c_str(), msg.size(), &compressed);
+				msg.rebuild(compressed.size());
+				memcpy(msg.data(), compressed.data(), compressed.size());
+				break;
+			}
+			default:
+				break;
+		}
 	}
 
 	return is_cached;
