@@ -28,7 +28,7 @@ env.Append(LIBPATH=["/usr/lib"])
 # env.Append(LINKFLAGS=["-pg"])
 # env.Append(CPPFLAGS=["-pg"])
 
-env.Append(LIBS=["zmq"])
+env.Append(LIBS=["zmq", "snappy"])
 
 # Godot source files
 env.add_source_files(env.drivers_sources, "*.cpp")

@@ -8,6 +8,7 @@
 // #include <GL/glew.h>
 #include "gl_commands.h"
 #include "glremote/glremote.h"
+#include <snappy.h>
 
 #define GL_SET_COMMAND(PTR, FUNCNAME)                                                \
 	gl_##FUNCNAME##_t *PTR = (gl_##FUNCNAME##_t *)malloc(sizeof(gl_##FUNCNAME##_t)); \
@@ -25,12 +26,14 @@ size_t more_data_size = 0;
 size_t cmd_size = 0;
 int uniform_matrix = 0;
 auto last_time = std::chrono::steady_clock::now();
+size_t benefit = 0;
 
 std::map<cache_key, std::size_t> data_cache;
 std::map<cache_key, std::size_t> more_data_cache;
 
 zmq::multipart_t cmd_buffer;
 bool is_buffer_enable = true;
+bool is_compress_enable = true;
 
 uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei height) {
 	uint32_t pixelbytes, linebytes, datasize;
@@ -133,6 +136,17 @@ bool create_cache_message(std::map<cache_key, std::size_t> &cache, unsigned char
 			memcpy(msg.data(), &cached_data, sizeof(gl_glCachedData_t));
 		}
 	}
+	if (is_compress_enable) {
+		size_t before_comp = msg.size();
+		// compression
+		std::string compressed;
+		snappy::Compress(msg.to_string().c_str(), msg.size(), &compressed);
+		msg.rebuild(compressed.size());
+		memcpy(msg.data(), compressed.data(), compressed.size());
+		size_t after_comp = msg.size();
+
+		benefit += before_comp - after_comp;
+	}
 
 	return is_cached;
 }
@@ -140,14 +154,6 @@ bool create_cache_message(std::map<cache_key, std::size_t> &cache, unsigned char
 void send_buffer() {
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	cmd_buffer.send(zmq_server->socket);
-	// for (auto &msg : cmd_buffer) {
-	// 	if (&msg != &cmd_buffer.back()) {
-	// 		zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-	// 	} else {
-	// 		zmq_server->socket.send(msg, zmq::send_flags::none);
-	// 	}
-	// }
-	// cmd_buffer.clear();
 }
 zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasReturn = false) {
 
@@ -1130,11 +1136,12 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 	auto current_time = std::chrono::steady_clock::now();
 	if (std::chrono::duration_cast<std::chrono::seconds>(current_time - last_time).count() >= 1) {
 		unsigned long int uniform_matrix_size = uniform_matrix * (16 * sizeof(GLfloat) + sizeof(gl_glUniformMatrix4fv_t) - 8);
-		std::cout << "----- count :" << uniform_matrix << "\t size:" << uniform_matrix_size << std::endl;
+		std::cout << "----- count :" << uniform_matrix << "\t size:" << uniform_matrix_size << "\t benefit: " << benefit << std::endl;
 		total_size = 0;
 		more_data_hit = 0;
 		more_data_count = 0;
 		uniform_matrix = 0;
+		benefit = 0;
 
 		last_time = current_time;
 	}
