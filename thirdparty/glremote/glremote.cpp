@@ -162,7 +162,7 @@ bool record_command(zmq::message_t &msg, zmq::message_t &data, zmq::message_t &b
 
 	curr_record.push_back(record_);
 	if (prev_record.size() > sequence_number) {
-		if (prev_record[sequence_number] == curr_record[sequence_number]) {
+		if (prev_record[sequence_number] == record_) {
 			record_hit = true;
 		}
 	}
