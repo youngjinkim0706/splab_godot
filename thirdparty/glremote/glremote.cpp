@@ -106,7 +106,6 @@ cache_check insert_or_check_cache(std::map<cache_key, std::size_t> &cache, unsig
 
 	auto res = cache.insert(std::make_pair(key, hashed_data));
 
-	// true : missed, false : hit
 	if (!res.second) {
 		if (res.first->second == hashed_data) {
 			cache_hit++;
@@ -114,10 +113,7 @@ cache_check insert_or_check_cache(std::map<cache_key, std::size_t> &cache, unsig
 			return std::make_pair(std::make_pair(key, hashed_data), cached);
 		}
 	}
-	if (data_msg.size() > prev_data_size) {
-		prev_data_size = data_msg.size();
-	}
-	total_size += data_msg.size();
+
 	return std::make_pair(std::make_pair(key, hashed_data), cached);
 }
 
@@ -155,23 +151,22 @@ void send_buffer() {
 }
 
 bool record_command(zmq::message_t &msg, zmq::message_t &data, zmq::message_t &buffer_data) {
+	// record creation
 	std::string raw_record;
 	raw_record.resize(msg.size() + data.size() + buffer_data.size());
 	raw_record.append(msg.to_string());
 	raw_record.append(data.to_string());
 	raw_record.append(buffer_data.to_string());
 	std::size_t record_ = std::hash<std::string>{}(raw_record);
+	bool record_hit = false;
 
+	curr_record.push_back(record_);
 	if (prev_record.size() > sequence_number) {
-		if (prev_record[sequence_number] == record_) {
-			return false;
-		} else {
-			prev_record[sequence_number] = record_;
-			return false;
+		if (prev_record[sequence_number] == curr_record[sequence_number]) {
+			record_hit = true;
 		}
-	} else {
-		prev_record.push_back(record_);
 	}
+	return record_hit;
 }
 zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasReturn = false) {
 
@@ -180,11 +175,11 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 	gl_command_t c = {
 		cmd, false, false
 	};
-	// if (hasReturn)
 
 	zmq::message_t msg(sizeof(c));
 	total_size += msg.size();
-	// cache_key key = cache_key_gen(cmd, sequence_number);
+
+	// std::cout << sequence_number << "\t" << (int)cmd << std::endl;
 	switch (cmd) {
 		case (unsigned char)GL_Server_Command::GLSC_glClearBufferfv: {
 			// data cache check
@@ -195,7 +190,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 
 			// more data cache check
 			gl_glClearBufferfv_t *more_data = (gl_glClearBufferfv_t *)cmd_data;
-			zmq::message_t buffer_data(sizeof(GLfloat) * 4); //
+			zmq::message_t buffer_data(sizeof(GLfloat) * 4);
 			memcpy(buffer_data.data(), more_data->value, sizeof(GLfloat) * 4);
 			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 
@@ -558,12 +553,10 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			// send more data
 			gl_glUniformMatrix4fv_t *more_data = (gl_glUniformMatrix4fv_t *)cmd_data;
 			zmq::message_t buffer_data;
-			if (more_data->value != NULL) {
-				buffer_data.rebuild(more_data->count * 16 * sizeof(GLfloat));
-				memcpy(buffer_data.data(), more_data->value, more_data->count * 16 * sizeof(GLfloat));
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-			}
-			uniform_matrix += 1;
+			buffer_data.rebuild(more_data->count * 16 * sizeof(GLfloat));
+			memcpy(buffer_data.data(), more_data->value, more_data->count * 16 * sizeof(GLfloat));
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
@@ -609,16 +602,13 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			// send more data
 			gl_glUniform4fv_t *more_data = (gl_glUniform4fv_t *)cmd_data;
 			zmq::message_t buffer_data;
-			if (more_data->value != NULL) {
-				buffer_data.rebuild(more_data->count * 4 * sizeof(GLfloat));
-				memcpy(buffer_data.data(), more_data->value, more_data->count * 4 * sizeof(GLfloat));
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-			}
-			more_data_size += buffer_data.size();
+			buffer_data.rebuild(more_data->count * 4 * sizeof(GLfloat));
+			memcpy(buffer_data.data(), more_data->value, more_data->count * 4 * sizeof(GLfloat));
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
 			if (!is_buffer_enable) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
@@ -665,7 +655,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 				memcpy(buffer_data.data(), more_data->v, sizeof(GLfloat) * 4);
 				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
-			more_data_size += buffer_data.size();
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
@@ -711,21 +700,17 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			// send more data
 			gl_glUniform2fv_t *more_data = (gl_glUniform2fv_t *)cmd_data;
 			zmq::message_t buffer_data;
-			if (more_data->value != NULL) {
-				buffer_data.rebuild(more_data->count * sizeof(GLfloat) * 2);
-				memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLfloat));
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-			}
-			more_data_size += buffer_data.size();
+			buffer_data.rebuild(more_data->count * sizeof(GLfloat) * 2);
+			memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLfloat));
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
 			if (!is_buffer_enable) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
@@ -762,12 +747,10 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			// send more data
 			gl_glUniform1iv_t *more_data = (gl_glUniform1iv_t *)cmd_data;
 			zmq::message_t buffer_data;
-			if (more_data->value != NULL) {
-				buffer_data.rebuild(more_data->count * sizeof(GLint) * 1);
-				memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLint));
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-			}
-			more_data_size += buffer_data.size();
+			buffer_data.rebuild(more_data->count * sizeof(GLint) * 1);
+			memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLint));
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
@@ -1418,6 +1401,9 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			prev_data_size = 0;
 			count_buffer_length = 0;
 
+			// swap vector;
+			prev_record.swap(curr_record);
+			std::vector<std::size_t>().swap(curr_record);
 			break;
 		}
 		default: {
@@ -1451,8 +1437,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
 					} else {
-						// std::cout << "hit: " << (int)cmd << std::endl;
-
 						msg.rebuild(0);
 						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
@@ -1475,7 +1459,6 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 
 		last_time = current_time;
 	}
-	// std::cout << (int)cmd << "\t" << prev_record.size() << "\t" << sequence_number << std::endl;
 
 	sequence_number++;
 

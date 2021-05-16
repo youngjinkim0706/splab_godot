@@ -105,15 +105,18 @@ enum class GL_Server_Command : unsigned char {
 	GLSC_glUniform1iv,
 };
 
-typedef struct {
+typedef struct
+{
 	GLenum cap;
 } gl_glDisable_t, gl_glEnable_t;
 
-typedef struct {
+typedef struct
+{
 	GLenum func;
 } gl_glDepthFunc_t;
 
-typedef struct {
+typedef struct
+{
 	GLenum target;
 	GLint levels;
 	GLint internalformat;
@@ -121,14 +124,16 @@ typedef struct {
 	GLsizei height;
 } gl_glTexStorage2D_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLenum pname;
 	GLint param;
 } gl_glTexParameteri_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLenum internalformat;
@@ -136,7 +141,8 @@ typedef struct {
 	GLsizei height;
 } gl_glRenderbufferStorage_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint srcX0;
 	GLint srcY0;
@@ -150,7 +156,8 @@ typedef struct {
 	GLenum filter;
 } gl_glBlitFramebuffer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLenum attachment;
@@ -159,7 +166,8 @@ typedef struct {
 	GLint layer;
 } gl_glFramebufferTextureLayer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLsizei samples;
@@ -168,7 +176,8 @@ typedef struct {
 	GLsizei height;
 } gl_glRenderbufferStorageMultisample_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLint level;
@@ -181,7 +190,8 @@ typedef struct {
 	const void *pixels;
 } gl_glTexImage2D_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLint level;
@@ -194,7 +204,8 @@ typedef struct {
 	const void *pixels;
 } gl_glTexSubImage2D_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLint level;
@@ -206,7 +217,8 @@ typedef struct {
 	const void *pixels;
 } gl_glCompressedTexImage2D_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint x;
 	GLint y;
@@ -216,7 +228,8 @@ typedef struct {
 	GLenum type;
 } gl_glReadPixels_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLint level;
@@ -230,37 +243,43 @@ typedef struct {
 	const void *pixels;
 } gl_glTexImage3D_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLsizei n;
 	const GLuint *textures;
 } gl_glDeleteTextures_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLsizei n;
 	const GLuint *framebuffers;
 } gl_glDeleteFramebuffers_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLsizei n;
 	const GLuint *renderbuffers;
 } gl_glDeleteRenderbuffers_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum buffer;
 	GLint drawbuffer;
 	const GLfloat *value;
 } gl_glClearBufferfv_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLfloat d;
 } gl_glClearDepthf_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLint level;
@@ -275,17 +294,20 @@ typedef struct {
 	const void *pixels;
 } gl_glTexSubImage3D_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum pname;
 } gl_glGetIntegerv_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum pname;
 } gl_glGetFloatv_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint x;
 	GLint y;
@@ -293,14 +315,16 @@ typedef struct {
 	GLsizei height;
 } gl_glScissor_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint program;
 	GLuint uniformBlockIndex;
 	GLuint uniformBlockBinding;
 } gl_glUniformBlockBinding_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLenum attachment;
@@ -308,14 +332,16 @@ typedef struct {
 	GLuint renderbuffer;
 } gl_glFramebufferRenderbuffer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLuint index;
 	GLuint buffer;
 } gl_glBindBufferBase_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLboolean red;
 	GLboolean green;
@@ -323,20 +349,23 @@ typedef struct {
 	GLboolean alpha;
 } gl_glColorMask_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum pname;
 	GLint param;
 } gl_glPixelStorei_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLenum pname;
 	GLfloat param;
 } gl_glTexParameterf_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint x;
 	GLint y;
@@ -344,77 +373,91 @@ typedef struct {
 	GLsizei height;
 } gl_glViewport_t;
 
-typedef struct {
+typedef struct
+{
 	unsigned char cmd;
 	bool is_data_cached;
 	bool is_more_data_cached;
 } gl_command_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum name;
 	GLuint index;
 } gl_glGetStringi_t;
 
-typedef struct {
+typedef struct
+{
 	GLenum name;
 } gl_glGetString_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint index;
 } gl_glDisableVertexAttribArray_t;
 
-typedef struct {
+typedef struct
+{
 
 } gl_glFlush_t, gl_glCreateProgram_t, gl_glBreak_t, gl_glSwapBuffer_t, gl_glEnd_t, gl_glGetError_t, gl_glEndTransformFeedback_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLbitfield mask;
 } gl_glClear_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint location;
 	GLint v0;
 } gl_glUniform1i_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint location;
 	GLfloat v0;
 } gl_glUniform1f_t;
 
-typedef struct {
+typedef struct
+{
 	GLint location;
 	GLsizei count;
 	const GLint *value;
 } gl_glUniform1iv_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 } gl_glGenerateMipmap_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum mode;
 } gl_glBegin_t, gl_glFrontFace_t, gl_glBlendEquation_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum sfactor;
 	GLenum dfactor;
 } gl_glBlendFunc_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint program;
 	const GLchar *name;
 } gl_glGetUniformLocation_t, gl_glGetUniformBlockIndex_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum sfactorRGB;
 	GLenum dfactorRGB;
@@ -422,21 +465,24 @@ typedef struct {
 	GLenum dfactorAlpha;
 } gl_glBlendFuncSeparate_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLfloat red;
 	GLfloat green;
 	GLfloat blue;
 } gl_glColor3f_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLfloat x;
 	GLfloat y;
 	GLfloat z;
 } gl_glVertex3f_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint index;
 	GLfloat x;
@@ -445,19 +491,22 @@ typedef struct {
 	GLfloat w;
 } gl_glVertexAttrib4f_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint index;
 	const GLfloat *v;
 } gl_glVertexAttrib4fv_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint location;
 	GLuint v0;
 } gl_glUniform1ui_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum mode;
 	GLsizei count;
@@ -465,17 +514,20 @@ typedef struct {
 	int64_t indices;
 } gl_glDrawElements_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum type;
 } gl_glCreateShader_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum src;
 } gl_glReadBuffer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint shader;
 	GLuint count;
@@ -483,71 +535,83 @@ typedef struct {
 	const GLint *length; // usally null
 } gl_glShaderSource_t;
 
-typedef struct {
+typedef struct
+{
 	GLuint shader;
 } gl_glCompileShader_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLboolean flag;
 } gl_glDepthMask_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint shader;
 	GLenum pname;
 	GLint *result;
 } gl_glGetShaderiv_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint program;
 	GLuint shader;
 } gl_glAttachShader_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint program;
 } gl_glLinkProgram_t, gl_glUseProgram_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint program;
 	GLenum pname;
 	GLint *result;
 } gl_glGetProgramiv_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLsizei n;
 	unsigned int last_index;
 } gl_glGenTextures_t, gl_glGenBuffers_t, gl_glGenFramebuffers_t, gl_glGenRenderbuffers_t, gl_glGenVertexArrays_t, gl_glGenQueries_t, gl_glGenSamplers_t, gl_glGenTransformFeedbacks_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum texture;
 } gl_glActiveTexture_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLuint texture;
 } gl_glBindTexture_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLuint framebuffer;
 } gl_glBindFramebuffer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLint location;
 	GLsizei count;
 	const GLfloat *value;
 
 } gl_glUniform4fv_t, gl_glUniform2fv_t;
-typedef struct {
+typedef struct
+{
 
 	GLint location;
 	GLsizei count;
@@ -555,7 +619,8 @@ typedef struct {
 	const GLfloat *value;
 
 } gl_glUniformMatrix4fv_t;
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLenum attachment;
@@ -564,24 +629,28 @@ typedef struct {
 	GLint level;
 } gl_glFramebufferTexture2D_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 } gl_glCheckFramebufferStatus_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLuint id;
 } gl_glBindBuffer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLuint renderbuffer;
 } gl_glBindRenderbuffer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLsizeiptr size;
@@ -589,7 +658,8 @@ typedef struct {
 	GLenum usage;
 } gl_glBufferData_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum target;
 	GLintptr offset;
@@ -597,18 +667,21 @@ typedef struct {
 	const void *data;
 } gl_glBufferSubData_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint array;
 } gl_glBindVertexArray_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint programObj;
 	const GLchar *name;
 } gl_glGetAttribLocation_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint index;
 	GLint size;
@@ -618,12 +691,14 @@ typedef struct {
 	int64_t pointer;
 } gl_glVertexAttribPointer_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint index;
 } gl_glEnableVertexAttribArray_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLfloat red;
 	GLfloat green;
@@ -631,32 +706,37 @@ typedef struct {
 	GLfloat alpha;
 } gl_glClearColor_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum mode;
 	GLint first;
 	GLsizei count;
 } gl_glDrawArrays_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint program;
 	GLuint index;
 	const GLchar *name;
 } gl_glBindAttribLocation_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum primitiveMode;
 } gl_glBeginTransformFeedback_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint index;
 	GLuint divisor;
 } gl_glVertexAttribDivisor_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum mode;
 	GLint first;
@@ -664,7 +744,8 @@ typedef struct {
 	GLsizei instancecount;
 } gl_glDrawArraysInstanced_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLuint program;
 	GLsizei count;
@@ -672,29 +753,34 @@ typedef struct {
 	GLenum bufferMode;
 } gl_glTransformFeedbackVaryings_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLenum mode;
 } gl_glCullFace_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLsizei n;
 	const GLenum *bufs;
 } gl_glDrawBuffers_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLsizei n;
 	const GLuint *arrays;
 } gl_glDeleteVertexArrays_t;
 
-typedef struct {
+typedef struct
+{
 
 	GLsizei n;
 	const GLuint *buffers;
 } gl_glDeleteBuffers_t;
 
-typedef struct {
+typedef struct
+{
 	std::size_t hash_data;
 } gl_glCachedData_t;
