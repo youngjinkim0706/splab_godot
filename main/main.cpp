@@ -854,7 +854,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			OS::get_singleton()->disable_crash_handler();
 		} else if (I->get() == "--skip-breakpoints") {
 			skip_breakpoints = true;
-		} else if (I->get() == "--address"){
+		} else if (I->get() == "--address") {
 			if (I->next()) {
 				GLOBAL_DEF("remote_gl/address", I->next()->get());
 				fixed_fps = I->next()->get().to_int();
@@ -863,8 +863,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing ip address argument, aborting.\n");
 				goto error;
 			}
-		}
-		else {
+		} else {
 			main_args.push_back(I->get());
 		}
 
@@ -1297,7 +1296,7 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 	zmq_server->init_zmq();
 	String address = GLOBAL_GET("remote_gl/address");
 	std::string converted_addr;
-	for(int i=0; i < address.size(); i++){
+	for (int i = 0; i < address.size(); i++) {
 		converted_addr += address.get(i);
 	}
 	print_line(converted_addr.c_str());
@@ -1313,6 +1312,7 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 	if (err != OK) {
 		return err;
 	}
+	print_line("init complete");
 
 	print_line(" "); //add a blank line for readability
 
@@ -1332,6 +1332,8 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 	VisualServer::get_singleton()->set_render_loop_enabled(!disable_render_loop);
 
 	register_core_singletons();
+
+	print_line("visual render loop init complete");
 
 	MAIN_PRINT("Main: Setup Logo");
 
