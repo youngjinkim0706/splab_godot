@@ -5,7 +5,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <bitset>
-#include <map>
+#include <unordered_map>
 
 #define CACHE_THRESHOLD_SIZE 9 // 1 BYTE CMD AND 8 BYTE HASH
 #define CACHE_KEY_SIZE sizeof(size_t) * __CHAR_BIT__ + sizeof(unsigned char) * __CHAR_BIT__
