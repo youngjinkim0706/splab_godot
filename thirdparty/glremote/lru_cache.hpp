@@ -114,18 +114,19 @@ public:
 		cache_.clear();
 		keys_.clear();
 	}
-	void insert(const Key &k, Value v) {
+	bool insert(const Key &k, Value v) {
 		Guard g(lock_);
 		const auto iter = cache_.find(k);
 		if (iter != cache_.end()) {
 			iter->second->value = v;
 			keys_.splice(keys_.begin(), keys_, iter->second);
-			return;
+			return false;
 		}
 
 		keys_.emplace_front(k, std::move(v));
 		cache_[k] = keys_.begin();
 		prune();
+		return true;
 	}
 	bool tryGet(const Key &kIn, Value &vOut) {
 		Guard g(lock_);

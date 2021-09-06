@@ -1,4 +1,5 @@
 // #include "../trie.h"
+#include "../lru_cache.hpp"
 #include "../zmq_server.h"
 #include "glad.h"
 #include <sys/syscall.h>

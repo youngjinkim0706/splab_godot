@@ -28,8 +28,10 @@ int uniform_matrix = 0;
 auto last_time = std::chrono::steady_clock::now();
 size_t benefit = 0;
 size_t count_buffer_length = 0;
-std::unordered_map<cache_key, std::size_t> data_cache;
-std::unordered_map<cache_key, std::size_t> more_data_cache;
+// std::unordered_map<cache_key, std::size_t> data_cache;
+lru11::Cache<cache_key, std::size_t> data_cache;
+// std::unordered_map<cache_key, std::size_t> more_data_cache;
+lru11::Cache<cache_key, std::size_t> more_data_cache;
 std::vector<std::size_t> prev_record;
 std::vector<std::size_t> curr_record;
 
@@ -98,21 +100,29 @@ std::string alloc_cached_data(zmq::message_t &data_msg) {
 	return cache_data;
 }
 
-cache_check insert_or_check_cache(std::unordered_map<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &data_msg) {
+cache_check insert_or_check_cache(lru11::Cache<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &data_msg) {
 	bool cached = false;
 	std::string cache_data = alloc_cached_data(data_msg);
 	std::size_t hashed_data = std::hash<std::string>{}(cache_data);
 	cache_key key = cache_key_gen(cmd, hashed_data);
 
-	auto res = cache.insert(std::make_pair(key, hashed_data));
+	// auto res = cache.insert(std::make_pair(key, hashed_data));
+	bool res = cache.insert(key, hashed_data);
 
-	if (!res.second) {
-		if (res.first->second == hashed_data) {
-			cache_hit++;
-			cached = true;
-			return std::make_pair(std::make_pair(key, hashed_data), cached);
-		}
+	if (!res) {
+		// if (res.get(key) == hashed_data) {
+		cache_hit++;
+		cached = true;
+		return std::make_pair(std::make_pair(key, hashed_data), cached);
+		// }
 	}
+	// if (!res.second) {
+	// 	if (res.first->second == hashed_data) {
+	// 		cache_hit++;
+	// 		cached = true;
+	// 		return std::make_pair(std::make_pair(key, hashed_data), cached);
+	// 	}
+	// }
 
 	return std::make_pair(std::make_pair(key, hashed_data), cached);
 }
@@ -123,7 +133,7 @@ gl_glCachedData_t create_cache_data(unsigned char cmd, std::size_t hash_data) {
 	return data;
 }
 
-bool create_cache_message(std::unordered_map<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &msg) {
+bool create_cache_message(lru11::Cache<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &msg) {
 	bool is_cached = false;
 
 	if (msg.size() > CACHE_THRESHOLD_SIZE) {
