@@ -14,9 +14,16 @@
 	gl_##FUNCNAME##_t *PTR = (gl_##FUNCNAME##_t *)malloc(sizeof(gl_##FUNCNAME##_t)); \
 	// PTR->cmd = GLSC_##FUNCNAME
 
+#define MAX_CACHE_ENTRY 1500
+#define FRAME_BUFFER_ENABLE 1
+#define COMPRESSION_ENABLE 0
+#define SEQUENCE_DEDUP_ENABLE 1
+#define COMMAND_DEDUP_ENABLE 1
+
 GLint global_pack_alignment = 4;
 GLint global_unpack_alignment = 4;
 int sequence_number = 0;
+int frame_number = 1;
 int cache_hit = 0;
 int more_data_hit = 0;
 int more_data_count = 0;
@@ -29,16 +36,15 @@ auto last_time = std::chrono::steady_clock::now();
 size_t benefit = 0;
 size_t count_buffer_length = 0;
 // std::unordered_map<cache_key, std::size_t> data_cache;
-lru11::Cache<cache_key, std::size_t> data_cache;
+lru11::Cache<cache_key, std::size_t> data_cache("data_cache", MAX_CACHE_ENTRY, 0);
 // std::unordered_map<cache_key, std::size_t> more_data_cache;
-lru11::Cache<cache_key, std::size_t> more_data_cache;
+lru11::Cache<cache_key, std::size_t> more_data_cache("more_data_cache", MAX_CACHE_ENTRY, 0);
 std::vector<std::size_t> prev_record;
 std::vector<std::size_t> curr_record;
 
-zmq::multipart_t cmd_buffer;
-bool is_buffer_enable = true;
-bool is_compress_enable = true;
-
+zmq::multipart_t frame_message_buffer;
+size_t key_size = 0;
+size_t data_size = 0;
 uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei height) {
 	uint32_t pixelbytes, linebytes, datasize;
 
@@ -95,8 +101,10 @@ cache_key cache_key_gen(unsigned char cmd, std::size_t hashed_data) {
 
 std::string alloc_cached_data(zmq::message_t &data_msg) {
 	std::string cache_data;
-	cache_data.resize(data_msg.size());
-	memcpy((void *)cache_data.data(), data_msg.data(), data_msg.size());
+	if (data_msg.size() > 0) {
+		cache_data.resize(data_msg.size());
+		memcpy((void *)cache_data.data(), data_msg.data(), data_msg.size());
+	}
 	return cache_data;
 }
 
@@ -105,15 +113,18 @@ cache_check insert_or_check_cache(lru11::Cache<cache_key, std::size_t> &cache, u
 	std::string cache_data = alloc_cached_data(data_msg);
 	std::size_t hashed_data = std::hash<std::string>{}(cache_data);
 	cache_key key = cache_key_gen(cmd, hashed_data);
-
 	// auto res = cache.insert(std::make_pair(key, hashed_data));
 	bool res = cache.insert(key, hashed_data);
+	// bool res = cache.insert(key, cache_data);
 
+	data_size += sizeof(cache_data);
 	if (!res) {
 		// if (res.get(key) == hashed_data) {
 		cache_hit++;
 		cached = true;
-		return std::make_pair(std::make_pair(key, hashed_data), cached);
+		// if ((int)cmd == 18)
+		// 	std::cout << (int)cmd << "\t" << key << std::endl;
+		// return std::make_pair(std::make_pair(key, hashed_data), cached);
 		// }
 	}
 	// if (!res.second) {
@@ -134,9 +145,10 @@ gl_glCachedData_t create_cache_data(unsigned char cmd, std::size_t hash_data) {
 }
 
 bool create_cache_message(lru11::Cache<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &msg) {
-	bool is_cached = false;
 
-	if (msg.size() > CACHE_THRESHOLD_SIZE) {
+	// if (msg.size() > CACHE_THRESHOLD_SIZE) {
+	bool is_cached = false;
+	if (COMMAND_DEDUP_ENABLE) {
 		auto cache_result = insert_or_check_cache(cache, cmd, msg);
 		if (cache_result.second) {
 			is_cached = true;
@@ -144,38 +156,42 @@ bool create_cache_message(lru11::Cache<cache_key, std::size_t> &cache, unsigned 
 			msg.rebuild(sizeof(gl_glCachedData_t));
 			memcpy(msg.data(), &cached_data, sizeof(gl_glCachedData_t));
 		}
+		// }
+		if (COMPRESSION_ENABLE) {
+			std::string compressed;
+			snappy::Compress(msg.to_string().c_str(), msg.size(), &compressed);
+			msg.rebuild(compressed.size());
+			memcpy(msg.data(), compressed.data(), compressed.size());
+		}
 	}
-	if (is_compress_enable) {
-		std::string compressed;
-		snappy::Compress(msg.to_string().c_str(), msg.size(), &compressed);
-		msg.rebuild(compressed.size());
-		memcpy(msg.data(), compressed.data(), compressed.size());
-	}
-
 	return is_cached;
 }
 
 void send_buffer() {
 	ZMQServer *zmq_server = ZMQServer::get_instance();
-	cmd_buffer.send(zmq_server->socket);
+	frame_message_buffer.send(zmq_server->socket);
 }
 
 bool record_command(zmq::message_t &msg, zmq::message_t &data, zmq::message_t &buffer_data) {
 	// record creation
-	std::string raw_record;
-	raw_record.resize(msg.size() + data.size() + buffer_data.size());
-	raw_record.append(msg.to_string());
-	raw_record.append(data.to_string());
-	raw_record.append(buffer_data.to_string());
-	std::size_t record_ = std::hash<std::string>{}(raw_record);
 	bool record_hit = false;
 
-	curr_record.push_back(record_);
-	if (prev_record.size() > sequence_number) {
-		if (prev_record[sequence_number] == record_) {
-			record_hit = true;
+	if (SEQUENCE_DEDUP_ENABLE) {
+		std::string raw_record;
+		raw_record.resize(msg.size() + data.size() + buffer_data.size());
+		raw_record.append(msg.to_string());
+		raw_record.append(data.to_string());
+		raw_record.append(buffer_data.to_string());
+		std::size_t record_ = std::hash<std::string>{}(raw_record);
+
+		curr_record.push_back(record_);
+		if (prev_record.size() > sequence_number) {
+			if (prev_record[sequence_number] == record_) {
+				record_hit = true;
+			}
 		}
 	}
+
 	return record_hit;
 }
 zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasReturn = false) {
@@ -188,6 +204,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 
 	zmq::message_t msg(sizeof(c));
 	total_size += msg.size();
+	// std::cout << frame_number << "\t" << sequence_number << "\t" << (int)cmd << "\t" << data_cache.size() << "\t" << more_data_cache.size() << std::endl;
 
 	// std::cout << sequence_number << "\t" << (int)cmd << std::endl;
 	switch (cmd) {
@@ -207,7 +224,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -215,23 +232,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -255,7 +272,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -263,23 +280,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -303,7 +320,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -311,23 +328,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -351,7 +368,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -359,23 +376,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -384,7 +401,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			break;
 		}
 		case (unsigned char)GL_Server_Command::GLSC_glShaderSource: {
-			if (cmd_buffer.size() > 0) {
+			if (frame_message_buffer.size() > 0) {
 				send_buffer();
 			}
 			// send cmd
@@ -419,7 +436,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			break;
 		}
 		case (unsigned char)GL_Server_Command::GLSC_glTransformFeedbackVaryings: {
-			if (cmd_buffer.size() > 0) {
+			if (frame_message_buffer.size() > 0) {
 				send_buffer();
 			}
 			// send cmd
@@ -465,14 +482,16 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if (more_data->data != NULL) {
 				buffer_data.rebuild(more_data->size);
 				memcpy(buffer_data.data(), more_data->data, more_data->size);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			// std::cout << frame_number << "\t" << sequence_number << "\t" << (int)cmd << "\t" << c.is_data_cached << "\t" << c.is_more_data_cached << std::endl;
+
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -480,23 +499,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -516,13 +535,14 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if (more_data->data != NULL) {
 				buffer_data.rebuild(more_data->size);
 				memcpy(buffer_data.data(), more_data->data, more_data->size);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -530,23 +550,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -571,7 +591,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
 			// send
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -579,23 +599,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -619,7 +639,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -627,23 +647,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -663,13 +683,14 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if (more_data->v != NULL) {
 				buffer_data.rebuild(sizeof(GLfloat) * 4);
 				memcpy(buffer_data.data(), more_data->v, sizeof(GLfloat) * 4);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -677,23 +698,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -714,33 +735,35 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLfloat));
 			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 
+			// std::cout << frame_number << "\t" << sequence_number << "\t" << (int)cmd << "\t" << c.is_data_cached << "\t" << c.is_more_data_cached << std::endl;
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -765,7 +788,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
 			// send
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -773,23 +796,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -813,7 +836,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
 			// send
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -821,23 +844,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -861,7 +884,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -869,23 +892,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -909,7 +932,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -917,23 +940,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -957,7 +980,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -965,23 +988,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1005,7 +1028,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -1013,23 +1036,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1053,7 +1076,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -1061,23 +1084,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1101,7 +1124,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -1109,23 +1132,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1147,36 +1170,37 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if (more_data->pixels != NULL) {
 				buffer_data.rebuild(datasize);
 				memcpy(buffer_data.data(), more_data->pixels, datasize);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1199,13 +1223,14 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if (more_data->pixels != NULL) {
 				buffer_data.rebuild(datasize);
 				memcpy(buffer_data.data(), more_data->pixels, datasize);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -1213,23 +1238,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1254,7 +1279,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -1262,23 +1287,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1300,36 +1325,37 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if (more_data->pixels != NULL) {
 				buffer_data.rebuild(datasize);
 				memcpy(buffer_data.data(), more_data->pixels, datasize);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1351,13 +1377,14 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			if (more_data->pixels != NULL) {
 				buffer_data.rebuild(datasize);
 				memcpy(buffer_data.data(), more_data->pixels, datasize);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
 			}
+			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
+
 			// send
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
@@ -1365,23 +1392,23 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						cmd_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -1395,11 +1422,11 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			// send cmd
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::none);
 
 			} else {
-				cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+				frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 				send_buffer();
 			}
 			if (hasReturn)
@@ -1410,7 +1437,7 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			cache_hit = 0;
 			prev_data_size = 0;
 			count_buffer_length = 0;
-
+			frame_number++;
 			// swap vector;
 			prev_record.swap(curr_record);
 			std::vector<std::size_t>().swap(curr_record);
@@ -1427,28 +1454,28 @@ zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasRe
 			memcpy(msg.data(), (void *)&c, sizeof(c));
 			bool is_record_hit = record_command(msg, data_msg, buffer_data);
 
-			if (!is_buffer_enable) {
+			if (!FRAME_BUFFER_ENABLE) {
 				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
 				zmq_server->socket.send(data_msg, zmq::send_flags::none);
 
 			} else {
 				if (hasReturn) {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
 						send_buffer();
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 						send_buffer();
 					}
 				} else {
 					if (!is_record_hit) {
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						cmd_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
 					} else {
 						msg.rebuild(0);
-						cmd_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
+						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
 					}
 				}
 			}
@@ -2597,6 +2624,7 @@ void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
 	c->target = target;
 	c->index = index;
 	c->buffer = buffer;
+	// std::cout << target << "\t" << index << "\t" << buffer << std::endl;
 	send_data((unsigned char)GL_Server_Command::GLSC_glBindBufferBase, (void *)c, sizeof(gl_glBindBufferBase_t));
 }
 void glTransformFeedbackVaryings(GLuint program, GLsizei count, const GLchar *const *varyings, GLenum bufferMode) {

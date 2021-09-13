@@ -89,6 +89,7 @@ public:
 	typedef Map map_type;
 	typedef Lock lock_type;
 	using Guard = std::lock_guard<lock_type>;
+	std::string cache_name;
 	/**
    * the maxSize is the soft limit of keys and (maxSize + elasticity) is the
    * hard limit
@@ -98,8 +99,10 @@ public:
    * using a std::unordered_map
    * directly anyway! :)
    */
-	explicit Cache(size_t maxSize = 64, size_t elasticity = 10) :
-			maxSize_(maxSize), elasticity_(elasticity) {}
+	explicit Cache(std::string name, size_t maxSize = 64, size_t elasticity = 10) :
+			maxSize_(maxSize), elasticity_(elasticity) {
+		cache_name = name;
+	}
 	virtual ~Cache() = default;
 	size_t size() const {
 		Guard g(lock_);
@@ -189,6 +192,7 @@ protected:
 		}
 		size_t count = 0;
 		while (cache_.size() > maxSize_) {
+			// std::cout << keys_.back().key << std::endl;
 			cache_.erase(keys_.back().key);
 			keys_.pop_back();
 			++count;
