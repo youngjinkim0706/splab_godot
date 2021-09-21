@@ -26,7 +26,7 @@
 std::vector<std::size_t> current_frame_hash_list;
 std::vector<std::size_t> prev_frame_hash_list;
 
-lru11::Cache<std::string, std::string> command_cache("ccache", MAX_CACHE_ENTRY, 0);
+lru11::Cache<std::string, std::string> command_cache("ccache", 500, 0);
 GLint global_pack_alignment = 4;
 GLint global_unpack_alignment = 4;
 

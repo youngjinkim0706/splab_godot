@@ -1825,15 +1825,12 @@ void glFlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length)
 }
 void glDeleteVertexArrays(GLsizei n, const GLuint *arrays) {
 	GL_SET_COMMAND(c, glDeleteVertexArrays);
-
 	c->n = n;
 	c->arrays = arrays;
 	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDeleteVertexArrays, (void *)c, sizeof(gl_glDeleteVertexArrays_t), true);
 #if !FRAME_BUFFER_ENABLE
 	send_buffer();
 #endif
-
-	// send_data((unsigned char)GL_Server_Command::GLSC_glDeleteVertexArrays, (void *)c, sizeof(gl_glDeleteVertexArrays_t));
 }
 GLboolean glIsVertexArray(GLuint array) {
 	return 0;
@@ -2041,7 +2038,6 @@ void glUniformBlockBinding(GLuint program, GLuint uniformBlockIndex, GLuint unif
 }
 void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
 	GL_SET_COMMAND(c, glDrawArraysInstanced);
-
 	c->mode = mode;
 	c->first = first;
 	c->count = count;
@@ -2050,8 +2046,6 @@ void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei inst
 #if !FRAME_BUFFER_ENABLE
 	send_buffer();
 #endif
-
-	// send_data((unsigned char)GL_Server_Command::GLSC_glDrawArraysInstanced, (void *)c, sizeof(gl_glDrawArraysInstanced_t));
 }
 void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount) {
 	std::cout << __func__ << std::endl;
