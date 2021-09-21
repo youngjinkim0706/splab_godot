@@ -13,12 +13,7 @@
 #include <unordered_map>
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
-#ifndef MAX_CACHE_ENTRY
-#define MAX_BUCKET_SIZE 1 << 19
-#endif
-#ifndef MAX_BUCKET_SIZE
-#define MAX_BUCKET_SIZE 1 << 19
-#endif
+
 #define FRAME_BUFFER_ENABLE 1
 #define SEQUENCE_DEDUP_ENABLE 1
 #define COMMAND_DEDUP_ENABLE 1

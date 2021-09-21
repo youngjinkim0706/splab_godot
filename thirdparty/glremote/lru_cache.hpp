@@ -38,11 +38,11 @@
 #include <thread>
 #include <unordered_map>
 #ifndef MAX_BUCKET_SIZE
-#define MAX_BUCKET_SIZE 1 << 19
+#define MAX_BUCKET_SIZE (1 << 20) - 1
 #endif
 
 #ifndef MAX_CACHE_ENTRY
-#define MAX_CACHE_ENTRY 1 << 19
+#define MAX_CACHE_ENTRY (1 << 20) - 1
 #endif
 
 namespace lru11 {
