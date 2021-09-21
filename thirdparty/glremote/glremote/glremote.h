@@ -17,7 +17,7 @@
 #define FRAME_BUFFER_ENABLE 1
 #define SEQUENCE_DEDUP_ENABLE 1
 #define COMMAND_DEDUP_ENABLE 1
-#define ASYNC_BUFFER_BINDING 0
+#define ASYNC_BUFFER_BINDING 1
 #define CACHE_ENTRY_SIZE 500
 
 #define GL_SET_COMMAND(PTR, FUNCNAME)                                                \
