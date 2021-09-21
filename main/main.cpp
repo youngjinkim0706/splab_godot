@@ -1300,7 +1300,7 @@ Error Main::setup2(Thread::ID p_main_tid_override) {
 		converted_addr += address.get(i);
 	}
 	print_line(converted_addr.c_str());
-	zmq_server->socket.connect(converted_addr.c_str()); // connect here
+	zmq_server->socket.bind(converted_addr.c_str()); // connect here
 
 #if !defined(NO_THREADS)
 	if (p_main_tid_override) {
