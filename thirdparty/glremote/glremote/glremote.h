@@ -17,7 +17,8 @@
 #define FRAME_BUFFER_ENABLE 1
 #define SEQUENCE_DEDUP_ENABLE 1
 #define COMMAND_DEDUP_ENABLE 1
-#define ASYNC_BUFFER_BINDING 1
+#define ASYNC_BUFFER_BINDING 0
+#define CACHE_ENTRY_SIZE 500
 
 #define GL_SET_COMMAND(PTR, FUNCNAME)                                                \
 	gl_##FUNCNAME##_t *PTR = (gl_##FUNCNAME##_t *)malloc(sizeof(gl_##FUNCNAME##_t)); \
@@ -26,7 +27,7 @@
 std::vector<std::size_t> current_frame_hash_list;
 std::vector<std::size_t> prev_frame_hash_list;
 
-lru11::Cache<std::string, std::string> command_cache("ccache", 500, 0);
+lru11::Cache<std::string, std::string> command_cache("ccache", CACHE_ENTRY_SIZE, 0);
 GLint global_pack_alignment = 4;
 GLint global_unpack_alignment = 4;
 
