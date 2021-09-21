@@ -1,8 +1,21 @@
 #include "glremote/glremote.h"
 #include <stdint.h>
 // add all godot gl command
-typedef unsigned char GLcmd;
-enum class GL_Server_Command : unsigned char {
+
+#define CMD_FIELD_SIZE 2
+#define CCACHE_FIELD_SIZE 3
+
+typedef struct {
+	unsigned int deduplication : 2;
+	unsigned int cmd : 14;
+} OpenGLCmd;
+
+typedef struct {
+	unsigned int index : 4;
+	unsigned int bucket_id : 20;
+} CCacheLocator;
+
+enum class GL_Server_Command : unsigned int {
 	GLSC_BREAK,
 	GLSC_bufferSwap,
 	GLSC_glClear,
@@ -533,6 +546,7 @@ typedef struct
 	GLuint count;
 	const GLchar *const *string;
 	const GLint *length; // usally null
+	GLuint *string_length;
 } gl_glShaderSource_t;
 
 typedef struct
@@ -751,6 +765,8 @@ typedef struct
 	GLsizei count;
 	const GLchar *const *varyings;
 	GLenum bufferMode;
+	GLuint *string_length;
+
 } gl_glTransformFeedbackVaryings_t;
 
 typedef struct

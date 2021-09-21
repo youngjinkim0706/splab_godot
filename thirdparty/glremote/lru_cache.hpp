@@ -30,12 +30,20 @@
  */
 #pragma once
 #include <algorithm>
+#include <bitset>
 #include <cstdint>
 #include <list>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
+#ifndef MAX_BUCKET_SIZE
+#define MAX_BUCKET_SIZE 1 << 19
+#endif
+
+#ifndef MAX_CACHE_ENTRY
+#define MAX_CACHE_ENTRY 1 << 19
+#endif
 
 namespace lru11 {
 /*
@@ -102,6 +110,7 @@ public:
 	explicit Cache(std::string name, size_t maxSize = 64, size_t elasticity = 10) :
 			maxSize_(maxSize), elasticity_(elasticity) {
 		cache_name = name;
+		cache_.reserve(MAX_BUCKET_SIZE);
 	}
 	virtual ~Cache() = default;
 	size_t size() const {
@@ -117,6 +126,9 @@ public:
 		cache_.clear();
 		keys_.clear();
 	}
+	float get_loadfactor() {
+		return cache_.load_factor();
+	}
 	bool insert(const Key &k, Value v) {
 		Guard g(lock_);
 		const auto iter = cache_.find(k);
@@ -131,6 +143,51 @@ public:
 		prune();
 		return true;
 	}
+	std::bitset<24> create_ccache_field(std::bitset<20> bucket_id, std::bitset<4> index) {
+		std::bitset<24> merged(bucket_id.to_string() + index.to_string());
+		std::bitset<24> ccache_field{ merged };
+		return ccache_field;
+	}
+	void get_locator(const Key &k, void *locator) {
+		Guard g(lock_);
+		std::size_t bucket_id = cache_.bucket(k);
+		std::size_t target_id;
+		int index = 0;
+		for (auto iter = cache_.begin(bucket_id); iter != cache_.end(bucket_id); iter++) {
+			if (iter->second->key == k)
+				break;
+			else
+				index++;
+		}
+		std::bitset<20> bucket_bit(bucket_id);
+		// std::cout << bucket_id << "\t" << bucket_bit << std::endl;
+
+		std::bitset<4> index_bit(index);
+		std::bitset<24> ccache_bit = create_ccache_field(bucket_bit, index_bit);
+		// std::cout << bucket_id << "\t" << index << std::endl;
+		memcpy(locator, &ccache_bit, 3); //3byte
+
+		// return std::make_pair<std::size_t, int>(bucket_id, index);
+	}
+	const Value &direct_find(std::size_t bucket_id, int index) {
+		Guard g(lock_);
+		int i = 0;
+
+		for (auto iter = cache_.begin(bucket_id); iter != cache_.end(bucket_id); iter++) {
+			if (i == index)
+				return iter->second->value;
+			i++;
+		}
+		throw KeyNotFound();
+	}
+	bool tryFind(const Key &k) {
+		Guard g(lock_);
+		const auto iter = cache_.find(k);
+		if (iter == cache_.end()) {
+			return true;
+		}
+		return false;
+	}
 	bool tryGet(const Key &kIn, Value &vOut) {
 		Guard g(lock_);
 		const auto iter = cache_.find(kIn);
@@ -140,6 +197,10 @@ public:
 		keys_.splice(keys_.begin(), keys_, iter->second);
 		vOut = iter->second->value;
 		return true;
+	}
+	void update(const Key &k) {
+		const auto iter = cache_.find(k);
+		keys_.splice(keys_.begin(), keys_, iter->second);
 	}
 	/**
    *	The const reference returned here is only
@@ -174,7 +235,6 @@ public:
 		Guard g(lock_);
 		return cache_.find(k) != cache_.end();
 	}
-
 	size_t getMaxSize() const { return maxSize_; }
 	size_t getElasticity() const { return elasticity_; }
 	size_t getMaxAllowedSize() const { return maxSize_ + elasticity_; }

@@ -1,50 +1,10 @@
-// #include <tbb/concurrent_queue.h>
-#include <chrono>
-#include <iostream>
-#include <string>
-#include <type_traits>
-#include <zmq.hpp>
-#include <zmq_addon.hpp>
-// #include <GL/glew.h>
 #include "gl_commands.h"
-#include "glremote/glremote.h"
-#include <snappy.h>
 
-#define GL_SET_COMMAND(PTR, FUNCNAME)                                                \
-	gl_##FUNCNAME##_t *PTR = (gl_##FUNCNAME##_t *)malloc(sizeof(gl_##FUNCNAME##_t)); \
-	// PTR->cmd = GLSC_##FUNCNAME
-
-#define MAX_CACHE_ENTRY 1500
-#define FRAME_BUFFER_ENABLE 1
-#define COMPRESSION_ENABLE 0
-#define SEQUENCE_DEDUP_ENABLE 1
-#define COMMAND_DEDUP_ENABLE 1
-
-GLint global_pack_alignment = 4;
-GLint global_unpack_alignment = 4;
-int sequence_number = 0;
-int frame_number = 1;
-int cache_hit = 0;
-int more_data_hit = 0;
-int more_data_count = 0;
-size_t total_size = 0;
-size_t prev_data_size = 0;
-size_t more_data_size = 0;
-size_t cmd_size = 0;
-int uniform_matrix = 0;
-auto last_time = std::chrono::steady_clock::now();
-size_t benefit = 0;
-size_t count_buffer_length = 0;
 // std::unordered_map<cache_key, std::size_t> data_cache;
-lru11::Cache<cache_key, std::size_t> data_cache("data_cache", MAX_CACHE_ENTRY, 0);
-// std::unordered_map<cache_key, std::size_t> more_data_cache;
-lru11::Cache<cache_key, std::size_t> more_data_cache("more_data_cache", MAX_CACHE_ENTRY, 0);
-std::vector<std::size_t> prev_record;
-std::vector<std::size_t> curr_record;
+// lru11::Cache<cache_key, std::size_t> data_cache("data_cache", MAX_CACHE_ENTRY, 0);
+// // std::unordered_map<cache_key, std::size_t> more_data_cache;
+// lru11::Cache<cache_key, std::size_t> more_data_cache("more_data_cache", MAX_CACHE_ENTRY, 0);
 
-zmq::multipart_t frame_message_buffer;
-size_t key_size = 0;
-size_t data_size = 0;
 uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei height) {
 	uint32_t pixelbytes, linebytes, datasize;
 
@@ -92,1490 +52,406 @@ uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei
 	return datasize;
 }
 
-cache_key cache_key_gen(unsigned char cmd, std::size_t hashed_data) {
-	std::bitset<CACHE_KEY_SIZE> data_bit(hashed_data);
-	std::bitset<CACHE_KEY_SIZE> cmd_bit(cmd);
-	cmd_bit <<= sizeof(size_t) * __CHAR_BIT__;
-	return (cmd_bit |= data_bit).to_string();
-}
-
-std::string alloc_cached_data(zmq::message_t &data_msg) {
-	std::string cache_data;
-	if (data_msg.size() > 0) {
-		cache_data.resize(data_msg.size());
-		memcpy((void *)cache_data.data(), data_msg.data(), data_msg.size());
-	}
-	return cache_data;
-}
-
-cache_check insert_or_check_cache(lru11::Cache<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &data_msg) {
-	bool cached = false;
-	std::string cache_data = alloc_cached_data(data_msg);
-	std::size_t hashed_data = std::hash<std::string>{}(cache_data);
-	cache_key key = cache_key_gen(cmd, hashed_data);
-	// auto res = cache.insert(std::make_pair(key, hashed_data));
-	bool res = cache.insert(key, hashed_data);
-	// bool res = cache.insert(key, cache_data);
-
-	data_size += sizeof(cache_data);
-	if (!res) {
-		// if (res.get(key) == hashed_data) {
-		cache_hit++;
-		cached = true;
-		// if ((int)cmd == 18)
-		// 	std::cout << (int)cmd << "\t" << key << std::endl;
-		// return std::make_pair(std::make_pair(key, hashed_data), cached);
-		// }
-	}
-	// if (!res.second) {
-	// 	if (res.first->second == hashed_data) {
-	// 		cache_hit++;
-	// 		cached = true;
-	// 		return std::make_pair(std::make_pair(key, hashed_data), cached);
-	// 	}
-	// }
-
-	return std::make_pair(std::make_pair(key, hashed_data), cached);
-}
-
-gl_glCachedData_t create_cache_data(unsigned char cmd, std::size_t hash_data) {
-	gl_glCachedData_t data = {};
-	data.hash_data = hash_data;
-	return data;
-}
-
-bool create_cache_message(lru11::Cache<cache_key, std::size_t> &cache, unsigned char cmd, zmq::message_t &msg) {
-
-	// if (msg.size() > CACHE_THRESHOLD_SIZE) {
-	bool is_cached = false;
-	if (COMMAND_DEDUP_ENABLE) {
-		auto cache_result = insert_or_check_cache(cache, cmd, msg);
-		if (cache_result.second) {
-			is_cached = true;
-			gl_glCachedData_t cached_data = create_cache_data(cmd, cache_result.first.second);
-			msg.rebuild(sizeof(gl_glCachedData_t));
-			memcpy(msg.data(), &cached_data, sizeof(gl_glCachedData_t));
-		}
-		// }
-		if (COMPRESSION_ENABLE) {
-			std::string compressed;
-			snappy::Compress(msg.to_string().c_str(), msg.size(), &compressed);
-			msg.rebuild(compressed.size());
-			memcpy(msg.data(), compressed.data(), compressed.size());
-		}
-	}
-	return is_cached;
-}
-
 void send_buffer() {
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	frame_message_buffer.send(zmq_server->socket);
 }
 
-bool record_command(zmq::message_t &msg, zmq::message_t &data, zmq::message_t &buffer_data) {
-	// record creation
-	bool record_hit = false;
-
-	if (SEQUENCE_DEDUP_ENABLE) {
-		std::string raw_record;
-		raw_record.resize(msg.size() + data.size() + buffer_data.size());
-		raw_record.append(msg.to_string());
-		raw_record.append(data.to_string());
-		raw_record.append(buffer_data.to_string());
-		std::size_t record_ = std::hash<std::string>{}(raw_record);
-
-		curr_record.push_back(record_);
-		if (prev_record.size() > sequence_number) {
-			if (prev_record[sequence_number] == record_) {
-				record_hit = true;
-			}
-		}
-	}
-
-	return record_hit;
+std::bitset<16> create_cmd_field(std::bitset<14> cmd_bit, std::bitset<2> dedup_bit) {
+	std::bitset<16> merged(cmd_bit.to_string() + dedup_bit.to_string());
+	std::bitset<16> cmd_field{ merged };
+	return cmd_field;
 }
-zmq::message_t send_data(unsigned char cmd, void *cmd_data, int size, bool hasReturn = false) {
-
-	ZMQServer *zmq_server = ZMQServer::get_instance();
-
-	gl_command_t c = {
-		cmd, false, false
-	};
-
-	zmq::message_t msg(sizeof(c));
-	total_size += msg.size();
-	// std::cout << frame_number << "\t" << sequence_number << "\t" << (int)cmd << "\t" << data_cache.size() << "\t" << more_data_cache.size() << std::endl;
-
-	// std::cout << sequence_number << "\t" << (int)cmd << std::endl;
-	switch (cmd) {
-		case (unsigned char)GL_Server_Command::GLSC_glClearBufferfv: {
-			// data cache check
-			zmq::message_t data_msg(size);
-
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// more data cache check
-			gl_glClearBufferfv_t *more_data = (gl_glClearBufferfv_t *)cmd_data;
-			zmq::message_t buffer_data(sizeof(GLfloat) * 4);
-			memcpy(buffer_data.data(), more_data->value, sizeof(GLfloat) * 4);
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glDeleteFramebuffers: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glDeleteFramebuffers_t *more_data = (gl_glDeleteFramebuffers_t *)cmd_data;
-			zmq::message_t buffer_data(sizeof(GLuint) * more_data->n); //
-			memcpy(buffer_data.data(), more_data->framebuffers, sizeof(GLuint) * more_data->n);
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glDeleteRenderbuffers: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glDeleteRenderbuffers_t *more_data = (gl_glDeleteRenderbuffers_t *)cmd_data;
-			zmq::message_t buffer_data(sizeof(GLuint) * more_data->n); //
-			memcpy(buffer_data.data(), more_data->renderbuffers, sizeof(GLuint) * more_data->n);
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glDeleteTextures: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glDeleteTextures_t *more_data = (gl_glDeleteTextures_t *)cmd_data;
-			zmq::message_t buffer_data(sizeof(GLuint) * more_data->n);
-			memcpy(buffer_data.data(), more_data->textures, sizeof(GLuint) * more_data->n);
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glShaderSource: {
-			if (frame_message_buffer.size() > 0) {
-				send_buffer();
-			}
-			// send cmd
-
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-
-			// send data
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-
-			// send more data
-			gl_glShaderSource_t *more_data = (gl_glShaderSource_t *)cmd_data;
-			for (int i = 0; i < more_data->count; i++) {
-				zmq::message_t string_data;
-				if (strlen(more_data->string[i]) > 0) {
-					string_data.rebuild(strlen(more_data->string[i]));
-					memcpy(string_data.data(), more_data->string[i], strlen(more_data->string[i]));
-				}
-
-				if (i == more_data->count - 1) {
-					zmq_server->socket.send(string_data, zmq::send_flags::none);
-				} else {
-					zmq_server->socket.send(string_data, zmq::send_flags::sndmore);
-				}
-			}
-
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glTransformFeedbackVaryings: {
-			if (frame_message_buffer.size() > 0) {
-				send_buffer();
-			}
-			// send cmd
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-
-			// send data
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-
-			// send more data
-			gl_glTransformFeedbackVaryings_t *more_data = (gl_glTransformFeedbackVaryings_t *)cmd_data;
-			// std::
-			for (int i = 0; i < more_data->count; i++) {
-				zmq::message_t string_data;
-				if (strlen(more_data->varyings[i]) > 0) {
-					string_data.rebuild(strlen(more_data->varyings[i]));
-					memcpy(string_data.data(), more_data->varyings[i], strlen(more_data->varyings[i]));
-				}
-
-				if (i == more_data->count - 1) {
-					zmq_server->socket.send(string_data, zmq::send_flags::none);
-				} else {
-					zmq_server->socket.send(string_data, zmq::send_flags::sndmore);
-				}
-			}
-
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glBufferData: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glBufferData_t *more_data = (gl_glBufferData_t *)cmd_data;
-			zmq::message_t buffer_data;
-			if (more_data->data != NULL) {
-				buffer_data.rebuild(more_data->size);
-				memcpy(buffer_data.data(), more_data->data, more_data->size);
-			}
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			// std::cout << frame_number << "\t" << sequence_number << "\t" << (int)cmd << "\t" << c.is_data_cached << "\t" << c.is_more_data_cached << std::endl;
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glBufferSubData: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glBufferSubData_t *more_data = (gl_glBufferSubData_t *)cmd_data;
-			zmq::message_t buffer_data;
-			if (more_data->data != NULL) {
-				buffer_data.rebuild(more_data->size);
-				memcpy(buffer_data.data(), more_data->data, more_data->size);
-			}
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glUniformMatrix4fv: {
-			// send cmd
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glUniformMatrix4fv_t *more_data = (gl_glUniformMatrix4fv_t *)cmd_data;
-			zmq::message_t buffer_data;
-			buffer_data.rebuild(more_data->count * 16 * sizeof(GLfloat));
-			memcpy(buffer_data.data(), more_data->value, more_data->count * 16 * sizeof(GLfloat));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			// send
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glUniform4fv: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glUniform4fv_t *more_data = (gl_glUniform4fv_t *)cmd_data;
-			zmq::message_t buffer_data;
-			buffer_data.rebuild(more_data->count * 4 * sizeof(GLfloat));
-			memcpy(buffer_data.data(), more_data->value, more_data->count * 4 * sizeof(GLfloat));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glVertexAttrib4fv: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glVertexAttrib4fv_t *more_data = (gl_glVertexAttrib4fv_t *)cmd_data;
-			zmq::message_t buffer_data;
-			if (more_data->v != NULL) {
-				buffer_data.rebuild(sizeof(GLfloat) * 4);
-				memcpy(buffer_data.data(), more_data->v, sizeof(GLfloat) * 4);
-			}
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glUniform2fv: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glUniform2fv_t *more_data = (gl_glUniform2fv_t *)cmd_data;
-			zmq::message_t buffer_data;
-			buffer_data.rebuild(more_data->count * sizeof(GLfloat) * 2);
-			memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLfloat));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// std::cout << frame_number << "\t" << sequence_number << "\t" << (int)cmd << "\t" << c.is_data_cached << "\t" << c.is_more_data_cached << std::endl;
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glUniform1iv: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glUniform1iv_t *more_data = (gl_glUniform1iv_t *)cmd_data;
-			zmq::message_t buffer_data;
-			buffer_data.rebuild(more_data->count * sizeof(GLint) * 1);
-			memcpy(buffer_data.data(), more_data->value, more_data->count * sizeof(GLint));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			// send
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glDrawBuffers: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glDrawBuffers_t *more_data = (gl_glDrawBuffers_t *)cmd_data;
-			zmq::message_t buffer_data(more_data->n * sizeof(GLenum));
-			memcpy(buffer_data.data(), more_data->bufs, more_data->n * sizeof(GLenum));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			// send
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glDeleteVertexArrays: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glDeleteVertexArrays_t *more_data = (gl_glDeleteVertexArrays_t *)cmd_data;
-			zmq::message_t buffer_data(more_data->n * sizeof(GLuint));
-			memcpy(buffer_data.data(), more_data->arrays, more_data->n * sizeof(GLuint));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glDeleteBuffers: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glDeleteBuffers_t *more_data = (gl_glDeleteBuffers_t *)cmd_data;
-			zmq::message_t buffer_data(more_data->n * sizeof(GLuint));
-			memcpy(buffer_data.data(), more_data->buffers, more_data->n * sizeof(GLuint));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glGetAttribLocation: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glGetAttribLocation_t *more_data = (gl_glGetAttribLocation_t *)cmd_data;
-			zmq::message_t buffer_data(strlen(more_data->name));
-			memcpy(buffer_data.data(), more_data->name, strlen(more_data->name));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glBindAttribLocation: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glBindAttribLocation_t *more_data = (gl_glBindAttribLocation_t *)cmd_data;
-			zmq::message_t buffer_data(strlen(more_data->name));
-			memcpy(buffer_data.data(), more_data->name, strlen(more_data->name));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glGetUniformLocation: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glGetUniformLocation_t *more_data = (gl_glGetUniformLocation_t *)cmd_data;
-			zmq::message_t buffer_data(strlen(more_data->name));
-			memcpy(buffer_data.data(), more_data->name, strlen(more_data->name));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glGetUniformBlockIndex: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glGetUniformBlockIndex_t *more_data = (gl_glGetUniformBlockIndex_t *)cmd_data;
-			zmq::message_t buffer_data(strlen(more_data->name));
-			memcpy(buffer_data.data(), more_data->name, strlen(more_data->name));
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glTexSubImage2D: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glTexSubImage2D_t *more_data = (gl_glTexSubImage2D_t *)cmd_data;
-			uint32_t datasize = calc_pixel_data_size(more_data->type, more_data->format, more_data->width, more_data->height);
-
-			zmq::message_t buffer_data;
-			if (more_data->pixels != NULL) {
-				buffer_data.rebuild(datasize);
-				memcpy(buffer_data.data(), more_data->pixels, datasize);
-			}
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glTexImage2D: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glTexImage2D_t *more_data = (gl_glTexImage2D_t *)cmd_data;
-			uint32_t datasize = calc_pixel_data_size(more_data->type, more_data->format, more_data->width, more_data->height);
-
-			zmq::message_t buffer_data;
-			if (more_data->pixels != NULL) {
-				buffer_data.rebuild(datasize);
-				memcpy(buffer_data.data(), more_data->pixels, datasize);
-			}
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glCompressedTexImage2D: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			gl_glCompressedTexImage2D_t *more_data = (gl_glCompressedTexImage2D_t *)cmd_data;
-			zmq::message_t buffer_data;
-			if (more_data->pixels != NULL) {
-				buffer_data.rebuild(more_data->imageSize);
-				memcpy(buffer_data.data(), more_data->pixels, more_data->imageSize);
-				c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-			}
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glTexSubImage3D: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glTexSubImage3D_t *more_data = (gl_glTexSubImage3D_t *)cmd_data;
-			uint32_t datasize = calc_pixel_data_size(more_data->type, more_data->format, more_data->width, more_data->height) * more_data->depth;
-
-			zmq::message_t buffer_data;
-			if (more_data->pixels != NULL) {
-				buffer_data.rebuild(datasize);
-				memcpy(buffer_data.data(), more_data->pixels, datasize);
-			}
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_glTexImage3D: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send more data
-			gl_glTexImage3D_t *more_data = (gl_glTexImage3D_t *)cmd_data;
-			uint32_t datasize = calc_pixel_data_size(more_data->type, more_data->format, more_data->width, more_data->height) * more_data->depth;
-
-			zmq::message_t buffer_data;
-			if (more_data->pixels != NULL) {
-				buffer_data.rebuild(datasize);
-				memcpy(buffer_data.data(), more_data->pixels, datasize);
-			}
-			c.is_more_data_cached = create_cache_message(more_data_cache, cmd, buffer_data);
-
-			// send
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(buffer_data, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(buffer_data.data(), buffer_data.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-
-			break;
-		}
-		case (unsigned char)GL_Server_Command::GLSC_BREAK:
-		case (unsigned char)GL_Server_Command::GLSC_bufferSwap: {
-			// send cmd
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::none);
-
-			} else {
-				frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-				send_buffer();
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-
-			float cache_hit_ratio = cache_hit / sequence_number;
-			sequence_number = -1;
-			cache_hit = 0;
-			prev_data_size = 0;
-			count_buffer_length = 0;
-			frame_number++;
-			// swap vector;
-			prev_record.swap(curr_record);
-			std::vector<std::size_t>().swap(curr_record);
-			break;
-		}
-		default: {
-			// data cache check
-			zmq::message_t data_msg(size);
-			memcpy(data_msg.data(), cmd_data, size);
-			c.is_data_cached = create_cache_message(data_cache, cmd, data_msg);
-
-			// send
-			zmq::message_t buffer_data;
-			memcpy(msg.data(), (void *)&c, sizeof(c));
-			bool is_record_hit = record_command(msg, data_msg, buffer_data);
-
-			if (!FRAME_BUFFER_ENABLE) {
-				zmq_server->socket.send(msg, zmq::send_flags::sndmore);
-				zmq_server->socket.send(data_msg, zmq::send_flags::none);
-
-			} else {
-				if (hasReturn) {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-						send_buffer();
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						send_buffer();
-					}
-				} else {
-					if (!is_record_hit) {
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-						frame_message_buffer.push_back(zmq::message_t(data_msg.data(), data_msg.size()));
-					} else {
-						msg.rebuild(0);
-						frame_message_buffer.push_back(zmq::message_t(msg.data(), msg.size()));
-					}
-				}
-			}
-			if (hasReturn)
-				zmq_server->socket.recv(msg, zmq::recv_flags::none);
-			break;
+std::bitset<24> create_ccache_field(std::bitset<20> bucket_id, std::bitset<4> index) {
+	std::bitset<24> merged(bucket_id.to_string() + index.to_string());
+	std::bitset<24> ccache_field{ merged };
+	return ccache_field;
+}
+
+std::bitset<2> initial_sequecne_deduplication(std::size_t hashed_message) {
+	std::bitset<2> deduplication_bit(0);
+
+	current_frame_hash_list.push_back(hashed_message);
+	if (prev_frame_hash_list.size() > current_sequence_number) {
+		if (prev_frame_hash_list[current_sequence_number] == hashed_message) {
+			deduplication_bit = 2;
 		}
 	}
-	auto current_time = std::chrono::steady_clock::now();
-	if (std::chrono::duration_cast<std::chrono::seconds>(current_time - last_time).count() >= 1) {
-		unsigned long int uniform_matrix_size = uniform_matrix * (16 * sizeof(GLfloat) + sizeof(gl_glUniformMatrix4fv_t) - 8);
-		// std::cout << "----- count :" << count_buffer_length << "\t benefit: " << benefit << std::endl;
-		total_size = 0;
-		more_data_hit = 0;
-		more_data_count = 0;
-		uniform_matrix = 0;
-		benefit = 0;
+	return deduplication_bit;
+}
+bool individual_command_deduplication(std::string message, void *locator) {
+	bool is_new = command_cache.tryFind(message);
+	if (!is_new) { // 이미 존재하는 데이터 -> 버킷과 인덱스 전송
+		command_cache.get_locator(message, locator);
+		// return !is_new;
+	}
+	return is_new;
+}
+// 사실 이 함수는 메시지 생성 부분과 보내는 부분을 나눠야하지만, 매우 귀찮아서 하나로 뭉쳐놨음.
+// 분리하고자 하면 switch 문 아래부터 분리하면 됨
+std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non_pointer_param_size, bool has_pointer_param) {
+	std::string message;
+	// create cmd field
 
-		last_time = current_time;
+	message.resize(CMD_FIELD_SIZE + non_pointer_param_size);
+	memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE), non_pointer_param, non_pointer_param_size);
+	if (has_pointer_param) {
+		switch (cmd) {
+			case (unsigned int)GL_Server_Command::GLSC_glShaderSource: {
+				gl_glShaderSource_t *p_data = (gl_glShaderSource_t *)non_pointer_param;
+				p_data->string_length = new GLuint[p_data->count];
+
+				std::size_t shader_length = 0;
+				for (int i = 0; i < p_data->count; i++) {
+					shader_length += strlen(p_data->string[i]);
+					if (strlen(p_data->string[i]) > 0) {
+						message.resize(CMD_FIELD_SIZE + non_pointer_param_size + shader_length);
+						memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size + (shader_length - strlen(p_data->string[i]))), p_data->string[i], strlen(p_data->string[i]));
+					}
+					p_data->string_length[i] = strlen(p_data->string[i]);
+				}
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + shader_length + sizeof(GLuint) * p_data->count);
+				memcpy((void *)(char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size + shader_length, p_data->string_length, sizeof(GLuint) * p_data->count);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glTransformFeedbackVaryings: {
+				gl_glTransformFeedbackVaryings_t *p_data = (gl_glTransformFeedbackVaryings_t *)non_pointer_param;
+				p_data->string_length = new GLuint[p_data->count];
+
+				std::size_t varyings_length = 0;
+				for (int i = 0; i < p_data->count; i++) {
+					varyings_length += strlen(p_data->varyings[i]);
+					if (strlen(p_data->varyings[i]) > 0) {
+						message.resize(CMD_FIELD_SIZE + non_pointer_param_size + varyings_length);
+						memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size + (varyings_length - strlen(p_data->varyings[i]))), p_data->varyings[i], strlen(p_data->varyings[i]));
+					}
+					p_data->string_length[i] = strlen(p_data->varyings[i]);
+				}
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + varyings_length + sizeof(GLuint) * p_data->count);
+				memcpy((void *)(char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size + varyings_length, p_data->string_length, sizeof(GLuint) * p_data->count);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glClearBufferfv: {
+				size_t param_size = sizeof(GLfloat) * 4;
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glClearBufferfv_t *>(non_pointer_param)->value), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glDeleteFramebuffers: {
+				size_t param_size = reinterpret_cast<gl_glDeleteFramebuffers_t *>(non_pointer_param)->n * sizeof(GLuint);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteFramebuffers_t *>(non_pointer_param)->framebuffers), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glDeleteRenderbuffers: {
+				size_t param_size = reinterpret_cast<gl_glDeleteRenderbuffers_t *>(non_pointer_param)->n * sizeof(GLuint);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteRenderbuffers_t *>(non_pointer_param)->renderbuffers), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glDeleteTextures: {
+				size_t param_size = reinterpret_cast<gl_glDeleteTextures_t *>(non_pointer_param)->n * sizeof(GLuint);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteTextures_t *>(non_pointer_param)->textures), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glDeleteVertexArrays: {
+				size_t param_size = reinterpret_cast<gl_glDeleteVertexArrays_t *>(non_pointer_param)->n * sizeof(GLuint);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteVertexArrays_t *>(non_pointer_param)->arrays), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glDeleteBuffers: {
+				size_t param_size = reinterpret_cast<gl_glDeleteBuffers_t *>(non_pointer_param)->n * sizeof(GLuint);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteBuffers_t *>(non_pointer_param)->buffers), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glBufferData: {
+				if (reinterpret_cast<gl_glBufferData_t *>(non_pointer_param)->data != NULL) {
+					size_t param_size = reinterpret_cast<gl_glBufferData_t *>(non_pointer_param)->size;
+					message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+					memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glBufferData_t *>(non_pointer_param)->data), param_size);
+				}
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glBufferSubData: {
+				if (reinterpret_cast<gl_glBufferSubData_t *>(non_pointer_param)->data != NULL) {
+					size_t param_size = reinterpret_cast<gl_glBufferSubData_t *>(non_pointer_param)->size;
+					message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+					memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glBufferSubData_t *>(non_pointer_param)->data), param_size);
+				}
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glUniform1iv: {
+				size_t param_size = reinterpret_cast<gl_glUniform1iv_t *>(non_pointer_param)->count * sizeof(GLint) * 1;
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glUniform1iv_t *>(non_pointer_param)->value), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glUniform2fv: {
+				size_t param_size = reinterpret_cast<gl_glUniform2fv_t *>(non_pointer_param)->count * sizeof(GLfloat) * 2;
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glUniform2fv_t *>(non_pointer_param)->value), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glUniform4fv: {
+				size_t param_size = reinterpret_cast<gl_glUniform4fv_t *>(non_pointer_param)->count * sizeof(GLfloat) * 4;
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glUniform4fv_t *>(non_pointer_param)->value), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glUniformMatrix4fv: {
+				size_t param_size = reinterpret_cast<gl_glUniformMatrix4fv_t *>(non_pointer_param)->count * sizeof(GLfloat) * 16;
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glUniformMatrix4fv_t *>(non_pointer_param)->value), param_size);
+				std::string pointer_param = message.substr(CMD_FIELD_SIZE + sizeof(gl_glUniformMatrix4fv_t), message.size() - (CMD_FIELD_SIZE + sizeof(gl_glUniformMatrix4fv_t)));
+
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glVertexAttrib4fv: {
+				if (reinterpret_cast<gl_glVertexAttrib4fv_t *>(non_pointer_param)->v != NULL) {
+					size_t param_size = sizeof(GLfloat) * 4;
+					message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+					memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glVertexAttrib4fv_t *>(non_pointer_param)->v), param_size);
+				}
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glDrawBuffers: {
+				size_t param_size = reinterpret_cast<gl_glDrawBuffers_t *>(non_pointer_param)->n * sizeof(GLenum);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDrawBuffers_t *>(non_pointer_param)->bufs), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glGetAttribLocation: {
+				size_t param_size = strlen(reinterpret_cast<gl_glGetAttribLocation_t *>(non_pointer_param)->name);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glGetAttribLocation_t *>(non_pointer_param)->name), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glGetUniformLocation: {
+				size_t param_size = strlen(reinterpret_cast<gl_glGetUniformLocation_t *>(non_pointer_param)->name);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glGetUniformLocation_t *>(non_pointer_param)->name), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glGetUniformBlockIndex: {
+				size_t param_size = strlen(reinterpret_cast<gl_glGetUniformBlockIndex_t *>(non_pointer_param)->name);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glGetUniformBlockIndex_t *>(non_pointer_param)->name), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glBindAttribLocation: {
+				size_t param_size = strlen(reinterpret_cast<gl_glBindAttribLocation_t *>(non_pointer_param)->name);
+				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glBindAttribLocation_t *>(non_pointer_param)->name), param_size);
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glTexImage2D: {
+				gl_glTexImage2D_t *p_data = (gl_glTexImage2D_t *)non_pointer_param;
+				if (p_data->pixels != NULL) {
+					uint32_t param_size = calc_pixel_data_size(p_data->type, p_data->format, p_data->width, p_data->height);
+					message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+					memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glTexImage2D_t *>(non_pointer_param)->pixels), param_size);
+				}
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glTexSubImage2D: {
+				gl_glTexSubImage2D_t *p_data = (gl_glTexSubImage2D_t *)non_pointer_param;
+				if (p_data->pixels != NULL) {
+					uint32_t param_size = calc_pixel_data_size(p_data->type, p_data->format, p_data->width, p_data->height);
+					message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+					memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glTexSubImage2D_t *>(non_pointer_param)->pixels), param_size);
+				}
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glCompressedTexImage2D: {
+				gl_glCompressedTexImage2D_t *p_data = (gl_glCompressedTexImage2D_t *)non_pointer_param;
+				if (p_data->pixels != NULL) {
+					size_t param_size = p_data->imageSize;
+					message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+					memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glCompressedTexImage2D_t *>(non_pointer_param)->pixels), param_size);
+				}
+				break;
+			}
+			case (unsigned int)GL_Server_Command::GLSC_glTexImage3D: {
+				gl_glTexImage3D_t *p_data = (gl_glTexImage3D_t *)non_pointer_param;
+				if (p_data->pixels != NULL) {
+					uint32_t param_size = calc_pixel_data_size(p_data->type, p_data->format, p_data->width, p_data->height) * p_data->depth;
+					message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
+					memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glTexImage3D_t *>(non_pointer_param)->pixels), param_size);
+				}
+				break;
+			}
+			default: {
+				break;
+			}
+		}
 	}
 
-	sequence_number++;
+	std::bitset<14> cmd_bit(cmd);
+	std::bitset<2> dedup_bit(0);
+	std::bitset<16> cmd_field = create_cmd_field(cmd_bit, dedup_bit);
+	memcpy((void *)message.data(), &cmd_field, CMD_FIELD_SIZE); //copy 2bytes
 
-	return msg;
+	std::size_t hashed_message = std::hash<std::string>{}(message);
+
+#if SEQUENCE_DEDUP_ENABLE
+	dedup_bit = initial_sequecne_deduplication(hashed_message);
+	if (dedup_bit == 2) {
+		cmd_field = create_cmd_field(cmd_bit, dedup_bit);
+		message.resize(CMD_FIELD_SIZE);
+		memcpy((void *)message.data(), &cmd_field, CMD_FIELD_SIZE); //copy 2bytes
+	}
+#endif
+
+#if COMMAND_DEDUP_ENABLE
+	if (dedup_bit == 0) {
+		CCacheLocator locator = { 0, 0 };
+		bool is_new = individual_command_deduplication(message, &locator);
+		if (is_new) {
+			dedup_bit = 0;
+			command_cache.insert(message, message);
+		} else {
+			dedup_bit = 3;
+			cmd_field = create_cmd_field(cmd_bit, dedup_bit);
+			command_cache.update(message);
+			message.resize(CMD_FIELD_SIZE + CCACHE_FIELD_SIZE);
+			memcpy((void *)message.data(), &cmd_field, CMD_FIELD_SIZE); //copy 2bytes
+			memcpy((void *)message.data() + CMD_FIELD_SIZE, &locator, CCACHE_FIELD_SIZE); //copy 3bytes
+		}
+	}
+#endif
+	// std::cout << current_sequence_number << "\t" << cmd << "\t" << dedup_bit << std::endl;
+
+	if (dedup_bit == 2) {
+		frame_message_buffer.push_back(zmq::message_t());
+	} else {
+		frame_message_buffer.push_back(zmq::message_t(message.data(), message.size()));
+	}
+
+	current_sequence_number++;
+	return message;
 }
 
 void glViewport(GLint x, GLint y, GLsizei width, GLsizei height) {
 	GL_SET_COMMAND(c, glViewport);
-
 	c->x = x;
 	c->y = y;
 	c->width = width;
 	c->height = height;
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glViewport, (void *)c, sizeof(gl_glViewport_t), false);
 
-	send_data((unsigned char)GL_Server_Command::GLSC_glViewport, (void *)c, sizeof(gl_glViewport_t));
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glClear(GLbitfield mask) {
 	GL_SET_COMMAND(c, glClear);
 	c->mask = mask;
-
-	send_data((unsigned char)GL_Server_Command::GLSC_glClear, (void *)c, sizeof(gl_glClear_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glClear, (void *)c, sizeof(gl_glClear_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glBegin(GLenum mode) {
 	GL_SET_COMMAND(c, glBegin);
 	c->mode = mode;
-
-	send_data((unsigned char)GL_Server_Command::GLSC_glBegin, (void *)c, sizeof(gl_glBegin_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBegin, (void *)c, sizeof(gl_glBegin_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glColor3f(GLfloat red, GLfloat green, GLfloat blue) {
 	GL_SET_COMMAND(c, glColor3f);
 	c->red = red;
 	c->green = green;
 	c->blue = blue;
-
-	send_data((unsigned char)GL_Server_Command::GLSC_glColor3f, (void *)c, sizeof(gl_glColor3f_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glColor3f, (void *)c, sizeof(gl_glColor3f_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glVertex3f(GLfloat x, GLfloat y, GLfloat z) {
 	GL_SET_COMMAND(c, glVertex3f);
 	c->x = x;
 	c->y = y;
 	c->z = z;
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glVertex3f, (void *)c, sizeof(gl_glVertex3f_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 
-	send_data((unsigned char)GL_Server_Command::GLSC_glVertex3f, (void *)c, sizeof(gl_glVertex3f_t));
+	// send_data((unsigned char)GL_Server_Command::GLSC_glVertex3f, (void *)c, sizeof(gl_glVertex3f_t));
 }
 
 void glEnd() {
 	GL_SET_COMMAND(c, glEnd);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glEnd, (void *)c, sizeof(gl_glEnd_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 
-	send_data((unsigned char)GL_Server_Command::GLSC_glEnd, (void *)c, sizeof(gl_glEnd_t));
+	// send_data((unsigned char)GL_Server_Command::GLSC_glEnd, (void *)c, sizeof(gl_glEnd_t));
 }
 
 void glFlush() {
 	GL_SET_COMMAND(c, glFlush);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glFlush, (void *)c, sizeof(gl_glFlush_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 
-	send_data((unsigned char)GL_Server_Command::GLSC_glFlush, (void *)c, sizeof(gl_glFlush_t));
+	//send_data((unsigned char)GL_Server_Command::GLSC_glFlush, (void *)c, sizeof(gl_glFlush_t));
 }
 
 void glBreak() {
 	gl_command_t *c = (gl_command_t *)malloc(sizeof(gl_command_t));
-	send_data((unsigned char)GL_Server_Command::GLSC_BREAK, (void *)c, sizeof(gl_glBreak_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_BREAK, (void *)c, sizeof(gl_glBreak_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_BREAK, (void *)c, sizeof(gl_glBreak_t));
 }
 void glSwapBuffer() {
 	gl_command_t *c = (gl_command_t *)malloc(sizeof(gl_command_t));
-	send_data((unsigned char)GL_Server_Command::GLSC_bufferSwap, (void *)c, sizeof(gl_glSwapBuffer_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_bufferSwap, (void *)c, sizeof(gl_glSwapBuffer_t), false);
+
+	send_buffer();
+	zmq::message_t result;
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
+	// init variables
+	prev_frame_hash_list.swap(current_frame_hash_list);
+	std::vector<std::size_t>().swap(current_frame_hash_list);
+	current_sequence_number = 0;
 }
 GLuint glCreateShader(GLenum type) {
 	GL_SET_COMMAND(c, glCreateShader);
-
 	c->type = type;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glCreateShader, (void *)c, sizeof(gl_glCreateShader_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glCreateShader, (void *)c, sizeof(gl_glCreateShader_t), false);
+	send_buffer();
+	zmq::message_t result;
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
 	GLuint *ret = (GLuint *)result.data();
 	return (GLuint)*ret;
 }
 GLenum glGetError(void) {
 	GL_SET_COMMAND(c, glGetError);
 
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetError, (void *)c, sizeof(gl_glGetError_t), true);
-	unsigned int *ret = (GLenum *)result.data();
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetError, (void *)c, sizeof(gl_glGetError_t), false);
+	send_buffer();
+	zmq::message_t result;
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+	GLenum *ret = (GLenum *)result.data();
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetError, (void *)c, sizeof(gl_glGetError_t), true);
+	// GLenum *ret = (GLenum *)result.data();
 	return static_cast<GLenum>(*ret);
 }
 
@@ -1586,14 +462,23 @@ void glShaderSource(GLuint shader, GLuint count, const GLchar *const *string, co
 	c->count = count;
 	c->string = string;
 	c->length = length;
-	send_data((unsigned char)GL_Server_Command::GLSC_glShaderSource, (void *)c, sizeof(gl_glShaderSource_t));
+
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glShaderSource, (void *)c, sizeof(gl_glShaderSource_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glShaderSource, (void *)c, sizeof(gl_glShaderSource_t));
 	//SEND_MORE
 }
 void glCompileShader(GLuint shader) {
 	GL_SET_COMMAND(c, glCompileShader);
 
 	c->shader = shader;
-	send_data((unsigned char)GL_Server_Command::GLSC_glCompileShader, (void *)c, sizeof(gl_glCompileShader_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glCompileShader, (void *)c, sizeof(gl_glCompileShader_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glGetShaderiv(GLuint shader, GLenum pname, GLint *param) {
@@ -1601,7 +486,12 @@ void glGetShaderiv(GLuint shader, GLenum pname, GLint *param) {
 
 	c->shader = shader;
 	c->pname = pname;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetShaderiv, (void *)c, sizeof(gl_glGetShaderiv_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetShaderiv, (void *)c, sizeof(gl_glGetShaderiv_t), false);
+	send_buffer();
+	zmq::message_t result;
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
 	GLint *ret = (GLint *)result.data();
 	memcpy((void *)param, (void *)ret, sizeof(GLuint));
 }
@@ -1609,7 +499,12 @@ void glGetShaderiv(GLuint shader, GLenum pname, GLint *param) {
 GLuint glCreateProgram() {
 	GL_SET_COMMAND(c, glCreateProgram);
 
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glCreateProgram, (void *)c, sizeof(gl_glCreateProgram_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glCreateProgram, (void *)c, sizeof(gl_glCreateProgram_t), false);
+	send_buffer();
+	zmq::message_t result;
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
 	GLuint *ret = (GLuint *)result.data();
 	return *(GLuint *)ret;
 }
@@ -1619,14 +514,20 @@ void glAttachShader(GLuint program, GLuint shader) {
 
 	c->program = program;
 	c->shader = shader;
-	send_data((unsigned char)GL_Server_Command::GLSC_glAttachShader, (void *)c, sizeof(gl_glAttachShader_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glAttachShader, (void *)c, sizeof(gl_glAttachShader_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glLinkProgram(GLuint program) {
 	GL_SET_COMMAND(c, glLinkProgram);
 
 	c->program = program;
-	send_data((unsigned char)GL_Server_Command::GLSC_glLinkProgram, (void *)c, sizeof(gl_glLinkProgram_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glLinkProgram, (void *)c, sizeof(gl_glLinkProgram_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glGetProgramiv(GLuint program, GLenum pname, GLint *param) {
@@ -1634,25 +535,40 @@ void glGetProgramiv(GLuint program, GLenum pname, GLint *param) {
 
 	c->program = program;
 	c->pname = pname;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetProgramiv, (void *)c, sizeof(gl_glGetProgramiv_t), true);
+
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glCreateProgram, (void *)c, sizeof(gl_glCreateProgram_t), false);
+	send_buffer();
+
+	zmq::message_t result;
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
 	GLint *ret = (GLint *)result.data();
 	memcpy((void *)param, (void *)ret, sizeof(GLint));
 }
 
 void glGenBuffers(GLsizei n, GLuint *buffers) {
 	GL_SET_COMMAND(c, glGenBuffers);
-
 	c->n = n;
-
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	GLuint *indices = new GLuint[n];
+#if ASYNC_BUFFER_BINDING
 	for (int i = 0; i < n; i++) {
 		zmq_server->glGenBuffers_i++;
 		indices[i] = zmq_server->glGenBuffers_i;
 	}
 	c->last_index = indices[n - 1];
-	send_data((unsigned char)GL_Server_Command::GLSC_glGenBuffers, (void *)c, sizeof(gl_glGenBuffers_t));
-
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenBuffers, (void *)c, sizeof(gl_glGenBuffers_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+#else
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenBuffers, (void *)c, sizeof(gl_glGenBuffers_t), false);
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+	memcpy(indices, result.data(), sizeof(GLuint) * n);
+#endif
 	memcpy((void *)buffers, (void *)indices, sizeof(GLuint) * n);
 }
 
@@ -1661,7 +577,10 @@ void glBindBuffer(GLenum target, GLuint id) {
 
 	c->target = target;
 	c->id = id;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBindBuffer, (void *)c, sizeof(gl_glBindBuffer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBindBuffer, (void *)c, sizeof(gl_glBindBuffer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage) {
@@ -1671,23 +590,34 @@ void glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage
 	c->size = size;
 	c->data = data;
 	c->usage = usage;
-	// std::cout << target << std::endl;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBufferData, (void *)c, sizeof(gl_glBufferData_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBufferData, (void *)c, sizeof(gl_glBufferData_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glGenVertexArrays(GLsizei n, GLuint *arrays) {
 	GL_SET_COMMAND(c, glGenVertexArrays);
-
 	c->n = n;
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	GLuint *indices = new GLuint[n];
+#if ASYNC_BUFFER_BINDING
 	for (int i = 0; i < n; i++) {
 		zmq_server->glGenVertexArrays_i++;
 		indices[i] = zmq_server->glGenVertexArrays_i;
 	}
 	c->last_index = indices[n - 1];
-	send_data((unsigned char)GL_Server_Command::GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t));
-
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+#else
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenVertexArrays, (void *)c, sizeof(gl_glGenVertexArrays_t), false);
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+	memcpy(indices, result.data(), sizeof(GLuint) * n);
+#endif
 	memcpy((void *)arrays, (void *)indices, sizeof(GLuint) * n);
 }
 
@@ -1695,7 +625,10 @@ void glBindVertexArray(GLuint array) {
 	GL_SET_COMMAND(c, glBindVertexArray);
 
 	c->array = array;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBindVertexArray, (void *)c, sizeof(gl_glBindVertexArray_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBindVertexArray, (void *)c, sizeof(gl_glBindVertexArray_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 GLint glGetAttribLocation(GLuint programObj, const GLchar *name) {
@@ -1703,7 +636,12 @@ GLint glGetAttribLocation(GLuint programObj, const GLchar *name) {
 
 	c->programObj = programObj;
 	c->name = name;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetAttribLocation, (void *)c, sizeof(gl_glGetAttribLocation_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetAttribLocation, (void *)c, sizeof(gl_glGetAttribLocation_t), true);
+
+	send_buffer();
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
 	GLint *ret = (GLint *)result.data();
 	return (GLint)*ret;
 }
@@ -1716,22 +654,29 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
 	c->normalized = normalized;
 	c->stride = stride;
 	c->pointer = (int64_t)pointer;
-	// std::cout << index << "\t" << size << "\t" << type << "\t" << normalized << "\t" << stride << "\t" << (void *)pointer << std::endl;
-	send_data((unsigned char)GL_Server_Command::GLSC_glVertexAttribPointer, (void *)c, sizeof(gl_glVertexAttribPointer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glVertexAttribPointer, (void *)c, sizeof(gl_glVertexAttribPointer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glEnableVertexAttribArray(GLuint index) {
 	GL_SET_COMMAND(c, glEnableVertexAttribArray);
 
 	c->index = index;
-	// std::cout << index << std::endl;
-	send_data((unsigned char)GL_Server_Command::GLSC_glEnableVertexAttribArray, (void *)c, sizeof(gl_glEnableVertexAttribArray_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glEnableVertexAttribArray, (void *)c, sizeof(gl_glEnableVertexAttribArray_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glUseProgram(GLuint program) {
 	GL_SET_COMMAND(c, glUseProgram);
 
 	c->program = program;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUseProgram, (void *)c, sizeof(gl_glUseProgram_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUseProgram, (void *)c, sizeof(gl_glUseProgram_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
@@ -1741,7 +686,10 @@ void glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
 	c->green = green;
 	c->blue = blue;
 	c->alpha = alpha;
-	send_data((unsigned char)GL_Server_Command::GLSC_glClearColor, (void *)c, sizeof(gl_glClearColor_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glClearColor, (void *)c, sizeof(gl_glClearColor_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
 	GL_SET_COMMAND(c, glDrawArrays);
@@ -1749,7 +697,10 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
 	c->mode = mode;
 	c->first = first;
 	c->count = count;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDrawArrays, (void *)c, sizeof(gl_glDrawArrays_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDrawArrays, (void *)c, sizeof(gl_glDrawArrays_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glScissor(GLint x, GLint y, GLsizei width, GLsizei height) {
 	GL_SET_COMMAND(c, glScissor);
@@ -1758,52 +709,75 @@ void glScissor(GLint x, GLint y, GLsizei width, GLsizei height) {
 	c->y = y;
 	c->width = width;
 	c->height = height;
-	send_data((unsigned char)GL_Server_Command::GLSC_glScissor, (void *)c, sizeof(gl_glScissor_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glScissor, (void *)c, sizeof(gl_glScissor_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glGetIntegerv(GLenum pname, GLint *data) {
 	GL_SET_COMMAND(c, glGetIntegerv);
-
 	c->pname = pname;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetIntegerv, (void *)c, sizeof(gl_glGetIntegerv_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetIntegerv, (void *)c, sizeof(gl_glGetIntegerv_t), false);
+	send_buffer();
+
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
 	GLint *ret = (GLint *)result.data();
 	memcpy((void *)data, (void *)ret, sizeof(GLint));
 }
 void glGetFloatv(GLenum pname, GLfloat *data) {
 	GL_SET_COMMAND(c, glGetFloatv);
-
 	c->pname = pname;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetFloatv, (void *)c, sizeof(gl_glGetFloatv_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetFloatv, (void *)c, sizeof(gl_glGetFloatv_t), false);
+	send_buffer();
+
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
 	GLfloat *ret = (GLfloat *)result.data();
 	memcpy((void *)data, (void *)ret, sizeof(GLfloat));
 }
 void glGenTextures(GLsizei n, GLuint *textures) {
 	GL_SET_COMMAND(c, glGenTextures);
-
 	c->n = n;
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	GLuint *indices = new GLuint[n];
+#if ASYNC_BUFFER_BINDING
 	for (int i = 0; i < n; i++) {
 		zmq_server->glGenTextures_i++;
 		indices[i] = zmq_server->glGenTextures_i;
 	}
 	c->last_index = indices[n - 1];
-	send_data((unsigned char)GL_Server_Command::GLSC_glGenTextures, (void *)c, sizeof(gl_glGenTextures_t));
-
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenTextures, (void *)c, sizeof(gl_glGenTextures_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+#else
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenTextures, (void *)c, sizeof(gl_glGenTextures_t), false);
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+	memcpy(indices, result.data(), sizeof(GLuint) * n);
+#endif
 	memcpy((void *)textures, (void *)indices, sizeof(GLuint) * n);
 }
 void glActiveTexture(GLenum texture) {
 	GL_SET_COMMAND(c, glActiveTexture);
-
 	c->texture = texture;
-	send_data((unsigned char)GL_Server_Command::GLSC_glActiveTexture, (void *)c, sizeof(gl_glActiveTexture_t));
-	// std::cout << "active: " << texture << std::endl;
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glActiveTexture, (void *)c, sizeof(gl_glActiveTexture_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glBindTexture(GLenum target, GLuint texture) {
 	GL_SET_COMMAND(c, glBindTexture);
-
 	c->target = target;
 	c->texture = texture;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBindTexture, (void *)c, sizeof(gl_glBindTexture_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBindTexture, (void *)c, sizeof(gl_glBindTexture_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels) {
 	GL_SET_COMMAND(c, glTexImage2D);
@@ -1817,7 +791,10 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
 	c->format = format;
 	c->type = type;
 	c->pixels = pixels;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTexImage2D, (void *)c, sizeof(gl_glTexImage2D_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTexImage2D, (void *)c, sizeof(gl_glTexImage2D_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glTexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height) {
 	GL_SET_COMMAND(c, glTexStorage2D);
@@ -1827,7 +804,10 @@ void glTexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsize
 	c->internalformat = internalformat;
 	c->width = width;
 	c->height = height;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTexStorage2D, (void *)c, sizeof(gl_glTexStorage2D_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTexStorage2D, (void *)c, sizeof(gl_glTexStorage2D_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glTexParameteri(GLenum target, GLenum pname, GLint param) {
 	GL_SET_COMMAND(c, glTexParameteri);
@@ -1835,21 +815,34 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
 	c->target = target;
 	c->pname = pname;
 	c->param = param;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTexParameteri, (void *)c, sizeof(gl_glTexParameteri_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTexParameteri, (void *)c, sizeof(gl_glTexParameteri_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glGenFramebuffers(GLsizei n, GLuint *framebuffers) {
 	GL_SET_COMMAND(c, glGenFramebuffers);
-
 	c->n = n;
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	GLuint *indices = new GLuint[n];
+#if ASYNC_BUFFER_BINDING
 	for (int i = 0; i < n; i++) {
 		zmq_server->glGenFramebuffers_i++;
 		indices[i] = zmq_server->glGenFramebuffers_i;
 	}
 	c->last_index = indices[n - 1];
-	send_data((unsigned char)GL_Server_Command::GLSC_glGenFramebuffers, (void *)c, sizeof(gl_glGenFramebuffers_t));
-
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenFramebuffers, (void *)c, sizeof(gl_glGenFramebuffers_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+#else
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenFramebuffers, (void *)c, sizeof(gl_glGenFramebuffers_t), false);
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+	GLuint *ret = (GLuint *)result.data();
+	memcpy(indices, result.data(), sizeof(GLuint) * n);
+#endif
 	memcpy((void *)framebuffers, (void *)indices, sizeof(GLuint) * n);
 }
 void glBindFramebuffer(GLenum target, GLuint framebuffer) {
@@ -1857,7 +850,10 @@ void glBindFramebuffer(GLenum target, GLuint framebuffer) {
 
 	c->target = target;
 	c->framebuffer = framebuffer;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBindFramebuffer, (void *)c, sizeof(gl_glBindFramebuffer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBindFramebuffer, (void *)c, sizeof(gl_glBindFramebuffer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) {
@@ -1868,13 +864,22 @@ void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, 
 	c->textarget = textarget;
 	c->texture = texture;
 	c->level = level;
-	send_data((unsigned char)GL_Server_Command::GLSC_glFramebufferTexture2D, (void *)c, sizeof(gl_glFramebufferTexture2D_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glFramebufferTexture2D, (void *)c, sizeof(gl_glFramebufferTexture2D_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 GLenum glCheckFramebufferStatus(GLenum target) {
 	GL_SET_COMMAND(c, glCheckFramebufferStatus);
 
 	c->target = target;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glCheckFramebufferStatus, (void *)c, sizeof(gl_glCheckFramebufferStatus_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glCheckFramebufferStatus, (void *)c, sizeof(gl_glCheckFramebufferStatus_t), false);
+	send_buffer();
+
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
 	GLenum *ret = (GLenum *)result.data();
 	return (GLenum)*ret;
 }
@@ -1882,7 +887,10 @@ void glDisable(GLenum cap) {
 	GL_SET_COMMAND(c, glDisable);
 
 	c->cap = cap;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDisable, (void *)c, sizeof(gl_glDisable_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDisable, (void *)c, sizeof(gl_glDisable_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glTexImage3D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type, const void *pixels) {
 	GL_SET_COMMAND(c, glTexImage3D);
@@ -1897,7 +905,10 @@ void glTexImage3D(GLenum target, GLint level, GLint internalformat, GLsizei widt
 	c->format = format;
 	c->type = type;
 	c->pixels = pixels;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTexImage3D, (void *)c, sizeof(gl_glTexImage3D_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTexImage3D, (void *)c, sizeof(gl_glTexImage3D_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 
 // just defined functions
@@ -1906,14 +917,24 @@ void glBindAttribLocation(GLuint program, GLuint index, const GLchar *name) {
 
 	c->program = program;
 	c->name = name;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBindAttribLocation, (void *)c, sizeof(gl_glBindAttribLocation_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBindAttribLocation, (void *)c, sizeof(gl_glBindAttribLocation_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBindAttribLocation, (void *)c, sizeof(gl_glBindAttribLocation_t));
 }
 void glBindRenderbuffer(GLenum target, GLuint renderbuffer) {
 	GL_SET_COMMAND(c, glBindRenderbuffer);
 
 	c->target = target;
 	c->renderbuffer = renderbuffer;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBindRenderbuffer, (void *)c, sizeof(gl_glBindRenderbuffer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBindRenderbuffer, (void *)c, sizeof(gl_glBindRenderbuffer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBindRenderbuffer, (void *)c, sizeof(gl_glBindRenderbuffer_t));
 }
 void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
 	std::cout << __func__ << std::endl;
@@ -1922,7 +943,12 @@ void glBlendEquation(GLenum mode) {
 	GL_SET_COMMAND(c, glBlendEquation);
 
 	c->mode = mode;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBlendEquation, (void *)c, sizeof(gl_glBlendEquation_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBlendEquation, (void *)c, sizeof(gl_glBlendEquation_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBlendEquation, (void *)c, sizeof(gl_glBlendEquation_t));
 }
 void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
 	std::cout << __func__ << std::endl;
@@ -1932,7 +958,12 @@ void glBlendFunc(GLenum sfactor, GLenum dfactor) {
 
 	c->sfactor = sfactor;
 	c->dfactor = dfactor;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBlendFunc, (void *)c, sizeof(gl_glBlendFunc_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBlendFunc, (void *)c, sizeof(gl_glBlendFunc_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBlendFunc, (void *)c, sizeof(gl_glBlendFunc_t));
 }
 void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha) {
 	GL_SET_COMMAND(c, glBlendFuncSeparate);
@@ -1941,7 +972,12 @@ void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlp
 	c->dfactorRGB = dfactorRGB;
 	c->sfactorAlpha = sfactorAlpha;
 	c->dfactorAlpha = dfactorAlpha;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBlendFuncSeparate, (void *)c, sizeof(gl_glBlendFuncSeparate_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBlendFuncSeparate, (void *)c, sizeof(gl_glBlendFuncSeparate_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBlendFuncSeparate, (void *)c, sizeof(gl_glBlendFuncSeparate_t));
 }
 void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void *data) {
 	GL_SET_COMMAND(c, glBufferSubData);
@@ -1950,14 +986,24 @@ void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void
 	c->offset = offset;
 	c->size = size;
 	c->data = data;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBufferSubData, (void *)c, sizeof(gl_glBufferSubData_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBufferSubData, (void *)c, sizeof(gl_glBufferSubData_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBufferSubData, (void *)c, sizeof(gl_glBufferSubData_t));
 }
 
 void glClearDepthf(GLfloat d) {
 	GL_SET_COMMAND(c, glClearDepthf);
 
 	c->d = d;
-	send_data((unsigned char)GL_Server_Command::GLSC_glClearDepthf, (void *)c, sizeof(gl_glClearDepthf_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glClearDepthf, (void *)c, sizeof(gl_glClearDepthf_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glClearDepthf, (void *)c, sizeof(gl_glClearDepthf_t));
 }
 void glClearStencil(GLint s) {
 	std::cout << __func__ << std::endl;
@@ -1969,7 +1015,12 @@ void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha
 	c->green = green;
 	c->blue = blue;
 	c->alpha = alpha;
-	send_data((unsigned char)GL_Server_Command::GLSC_glColorMask, (void *)c, sizeof(gl_glColorMask_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glColorMask, (void *)c, sizeof(gl_glColorMask_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glColorMask, (void *)c, sizeof(gl_glColorMask_t));
 }
 void glCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data) {
 	GL_SET_COMMAND(c, glCompressedTexImage2D);
@@ -1982,7 +1033,12 @@ void glCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, G
 	c->border = border;
 	c->imageSize = imageSize;
 	c->pixels = data;
-	send_data((unsigned char)GL_Server_Command::GLSC_glCompressedTexImage2D, (void *)c, sizeof(gl_glCompressedTexImage2D_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glCompressedTexImage2D, (void *)c, sizeof(gl_glCompressedTexImage2D_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glCompressedTexImage2D, (void *)c, sizeof(gl_glCompressedTexImage2D_t));
 }
 void glCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void *data) {
 
@@ -1998,21 +1054,36 @@ void glCullFace(GLenum mode) {
 	GL_SET_COMMAND(c, glCullFace);
 
 	c->mode = mode;
-	send_data((unsigned char)GL_Server_Command::GLSC_glCullFace, (void *)c, sizeof(gl_glCullFace_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glCullFace, (void *)c, sizeof(gl_glCullFace_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glCullFace, (void *)c, sizeof(gl_glCullFace_t));
 }
 void glDeleteBuffers(GLsizei n, const GLuint *buffers) {
 	GL_SET_COMMAND(c, glDeleteBuffers);
 
 	c->n = n;
 	c->buffers = buffers;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDeleteBuffers, (void *)c, sizeof(gl_glDeleteBuffers_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDeleteBuffers, (void *)c, sizeof(gl_glDeleteBuffers_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDeleteBuffers, (void *)c, sizeof(gl_glDeleteBuffers_t));
 }
 void glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers) {
 	GL_SET_COMMAND(c, glDeleteFramebuffers);
 
 	c->n = n;
 	c->framebuffers = framebuffers;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDeleteFramebuffers, (void *)c, sizeof(gl_glDeleteFramebuffers_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDeleteFramebuffers, (void *)c, sizeof(gl_glDeleteFramebuffers_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDeleteFramebuffers, (void *)c, sizeof(gl_glDeleteFramebuffers_t));
 }
 void glDeleteProgram(GLuint program) {
 }
@@ -2021,7 +1092,12 @@ void glDeleteRenderbuffers(GLsizei n, const GLuint *renderbuffers) {
 
 	c->n = n;
 	c->renderbuffers = renderbuffers;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDeleteRenderbuffers, (void *)c, sizeof(gl_glDeleteRenderbuffers_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDeleteRenderbuffers, (void *)c, sizeof(gl_glDeleteRenderbuffers_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDeleteRenderbuffers, (void *)c, sizeof(gl_glDeleteRenderbuffers_t));
 }
 void glDeleteShader(GLuint shader) {
 }
@@ -2029,19 +1105,34 @@ void glDeleteTextures(GLsizei n, const GLuint *textures) {
 	GL_SET_COMMAND(c, glDeleteTextures);
 	c->n = n;
 	c->textures = textures;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDeleteTextures, (void *)c, sizeof(gl_glDeleteTextures_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDeleteTextures, (void *)c, sizeof(gl_glDeleteTextures_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDeleteTextures, (void *)c, sizeof(gl_glDeleteTextures_t));
 }
 void glDepthFunc(GLenum func) {
 	GL_SET_COMMAND(c, glDepthFunc);
 
 	c->func = func;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDepthFunc, (void *)c, sizeof(gl_glDepthFunc_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDepthFunc, (void *)c, sizeof(gl_glDepthFunc_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDepthFunc, (void *)c, sizeof(gl_glDepthFunc_t));
 }
 void glDepthMask(GLboolean flag) {
 	GL_SET_COMMAND(c, glDepthMask);
 
 	c->flag = flag;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDepthMask, (void *)c, sizeof(gl_glDepthMask_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDepthMask, (void *)c, sizeof(gl_glDepthMask_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDepthMask, (void *)c, sizeof(gl_glDepthMask_t));
 }
 void glDepthRangef(GLfloat n, GLfloat f) {
 	std::cout << __func__ << std::endl;
@@ -2053,7 +1144,12 @@ void glDisableVertexAttribArray(GLuint index) {
 	GL_SET_COMMAND(c, glDisableVertexAttribArray);
 
 	c->index = index;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDisableVertexAttribArray, (void *)c, sizeof(gl_glDisableVertexAttribArray_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDisableVertexAttribArray, (void *)c, sizeof(gl_glDisableVertexAttribArray_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDisableVertexAttribArray, (void *)c, sizeof(gl_glDisableVertexAttribArray_t));
 }
 void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices) {
 	GL_SET_COMMAND(c, glDrawElements);
@@ -2062,14 +1158,24 @@ void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices
 	c->count = count;
 	c->type = type;
 	c->indices = (int64_t)indices;
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDrawElements, (void *)c, sizeof(gl_glDrawElements_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
 	// std::cout << (int64_t)indices << std::endl;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDrawElements, (void *)c, sizeof(gl_glDrawElements_t));
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDrawElements, (void *)c, sizeof(gl_glDrawElements_t));
 }
 void glEnable(GLenum cap) {
 	GL_SET_COMMAND(c, glEnable);
 
 	c->cap = cap;
-	send_data((unsigned char)GL_Server_Command::GLSC_glEnable, (void *)c, sizeof(gl_glEnable_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glEnable, (void *)c, sizeof(gl_glEnable_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glEnable, (void *)c, sizeof(gl_glEnable_t));
 }
 void glFinish(void) {
 	std::cout << __func__ << std::endl;
@@ -2081,34 +1187,58 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
 	c->attachment = attachment;
 	c->renderbuffertarget = renderbuffertarget;
 	c->renderbuffer = renderbuffer;
-	send_data((unsigned char)GL_Server_Command::GLSC_glFramebufferRenderbuffer, (void *)c, sizeof(gl_glFramebufferRenderbuffer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glFramebufferRenderbuffer, (void *)c, sizeof(gl_glFramebufferRenderbuffer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glFramebufferRenderbuffer, (void *)c, sizeof(gl_glFramebufferRenderbuffer_t));
 }
 void glGenerateMipmap(GLenum target) {
 	GL_SET_COMMAND(c, glGenerateMipmap);
 
 	c->target = target;
-	send_data((unsigned char)GL_Server_Command::GLSC_glGenerateMipmap, (void *)c, sizeof(gl_glGenerateMipmap_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenerateMipmap, (void *)c, sizeof(gl_glGenerateMipmap_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glGenerateMipmap, (void *)c, sizeof(gl_glGenerateMipmap_t));
 }
 void glFrontFace(GLenum mode) {
 	GL_SET_COMMAND(c, glFrontFace);
 
 	c->mode = mode;
-	send_data((unsigned char)GL_Server_Command::GLSC_glFrontFace, (void *)c, sizeof(gl_glFrontFace_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glFrontFace, (void *)c, sizeof(gl_glFrontFace_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glFrontFace, (void *)c, sizeof(gl_glFrontFace_t));
 }
 void glGenRenderbuffers(GLsizei n, GLuint *renderbuffers) {
 	auto start = std::chrono::steady_clock::now();
 	GL_SET_COMMAND(c, glGenRenderbuffers);
-
 	c->n = n;
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	GLuint *indices = new GLuint[n];
+#if ASYNC_BUFFER_BINDING
 	for (int i = 0; i < n; i++) {
 		zmq_server->glGenRenderbuffers_i++;
 		indices[i] = zmq_server->glGenRenderbuffers_i;
 	}
 	c->last_index = indices[n - 1];
-	send_data((unsigned char)GL_Server_Command::GLSC_glGenRenderbuffers, (void *)c, sizeof(gl_glGenRenderbuffers_t));
-
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenRenderbuffers, (void *)c, sizeof(gl_glGenRenderbuffers_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+#else
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGenRenderbuffers, (void *)c, sizeof(gl_glGenRenderbuffers_t), false);
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+	memcpy(indices, result.data(), sizeof(GLuint) * n);
+#endif
 	memcpy((void *)renderbuffers, (void *)indices, sizeof(GLuint) * n);
 }
 void glGetActiveAttrib(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) {
@@ -2147,8 +1277,17 @@ void glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *
 const GLubyte *glGetString(GLenum name) {
 	GL_SET_COMMAND(c, glGetString);
 	c->name = name;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetString, (void *)c, sizeof(gl_glGetString_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetString, (void *)c, sizeof(gl_glGetString_t), false);
+
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetAttribLocation, (void *)c, sizeof(gl_glGetAttribLocation_t), true);
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
 	std::string ret = result.to_string();
+
+	std::cout << ret << std::endl;
+
 	return reinterpret_cast<const GLubyte *>(ret.c_str());
 }
 void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat *params) {
@@ -2169,7 +1308,14 @@ GLint glGetUniformLocation(GLuint program, const GLchar *name) {
 
 	c->program = program;
 	c->name = name;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetUniformLocation, (void *)c, sizeof(gl_glGetUniformLocation_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetUniformLocation, (void *)c, sizeof(gl_glGetUniformLocation_t), true);
+
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetAttribLocation, (void *)c, sizeof(gl_glGetAttribLocation_t), true);
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetUniformLocation, (void *)c, sizeof(gl_glGetUniformLocation_t), true);
 	GLint *ret = (GLint *)result.data();
 	return (GLint)*ret;
 }
@@ -2239,7 +1385,12 @@ void glPixelStorei(GLenum pname, GLint param) {
 
 	c->pname = pname;
 	c->param = param;
-	send_data((unsigned char)GL_Server_Command::GLSC_glPixelStorei, (void *)c, sizeof(gl_glPixelStorei_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glPixelStorei, (void *)c, sizeof(gl_glPixelStorei_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glPixelStorei, (void *)c, sizeof(gl_glPixelStorei_t));
 }
 void glPolygonOffset(GLfloat factor, GLfloat units) {
 	std::cout << __func__ << std::endl;
@@ -2253,7 +1404,15 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
 	c->height = height;
 	c->format = format;
 	c->type = type;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glReadPixels, (void *)c, sizeof(gl_glReadPixels_t), true);
+
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glReadPixels, (void *)c, sizeof(gl_glReadPixels_t), true);
+
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glReadPixels, (void *)c, sizeof(gl_glReadPixels_t), true);
 	void *data = result.data();
 	size_t size = 0;
 	switch (type) {
@@ -2281,7 +1440,12 @@ void glRenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, 
 	c->internalformat = internalformat;
 	c->width = width;
 	c->height = height;
-	send_data((unsigned char)GL_Server_Command::GLSC_glRenderbufferStorage, (void *)c, sizeof(gl_glRenderbufferStorage_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glRenderbufferStorage, (void *)c, sizeof(gl_glRenderbufferStorage_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glRenderbufferStorage, (void *)c, sizeof(gl_glRenderbufferStorage_t));
 }
 void glSampleCoverage(GLfloat value, GLboolean invert) {
 	std::cout << __func__ << std::endl;
@@ -2314,7 +1478,12 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
 	c->target = target;
 	c->pname = pname;
 	c->param = param;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTexParameterf, (void *)c, sizeof(gl_glTexParameterf_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTexParameterf, (void *)c, sizeof(gl_glTexParameterf_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glTexParameterf, (void *)c, sizeof(gl_glTexParameterf_t));
 }
 void glTexParameterfv(GLenum target, GLenum pname, const GLfloat *params) {
 	std::cout << __func__ << std::endl;
@@ -2334,32 +1503,41 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
 	c->format = format;
 	c->type = type;
 	c->pixels = pixels;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTexSubImage2D, (void *)c, sizeof(gl_glTexSubImage2D_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTexSubImage2D, (void *)c, sizeof(gl_glTexSubImage2D_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glUniform1f(GLint location, GLfloat v0) {
 	GL_SET_COMMAND(c, glUniform1f);
-
 	c->location = location;
 	c->v0 = v0;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniform1f, (void *)c, sizeof(gl_glUniform1f_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniform1f, (void *)c, sizeof(gl_glUniform1f_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glUniform1fv(GLint location, GLsizei count, const GLfloat *value) {
 	std::cout << __func__ << std::endl;
 }
 void glUniform1i(GLint location, GLint v0) {
 	GL_SET_COMMAND(c, glUniform1i);
-
 	c->location = location;
 	c->v0 = v0;
-	// std::cout << location << "\t" << v0 << std::endl;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniform1i, (void *)c, sizeof(gl_glUniform1i_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniform1i, (void *)c, sizeof(gl_glUniform1i_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glUniform1iv(GLint location, GLsizei count, const GLint *value) {
 	GL_SET_COMMAND(c, glUniform1iv);
 	c->location = location;
 	c->count = count;
 	c->value = value;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniform1iv, (void *)c, sizeof(gl_glUniform1iv_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniform1iv, (void *)c, sizeof(gl_glUniform1iv_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glUniform2f(GLint location, GLfloat v0, GLfloat v1) {
 	std::cout << __func__ << std::endl;
@@ -2370,7 +1548,10 @@ void glUniform2fv(GLint location, GLsizei count, const GLfloat *value) {
 	c->location = location;
 	c->count = count;
 	c->value = value;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniform2fv, (void *)c, sizeof(gl_glUniform2fv_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniform2fv, (void *)c, sizeof(gl_glUniform2fv_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glUniform2i(GLint location, GLint v0, GLint v1) {
 	std::cout << __func__ << std::endl;
@@ -2399,7 +1580,13 @@ void glUniform4fv(GLint location, GLsizei count, const GLfloat *value) {
 	c->location = location;
 	c->count = count;
 	c->value = value;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniform4fv, (void *)c, sizeof(gl_glUniform4fv_t));
+
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniform4fv, (void *)c, sizeof(gl_glUniform4fv_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glUniform4fv, (void *)c, sizeof(gl_glUniform4fv_t));
 }
 void glUniform4i(GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
 	std::cout << __func__ << std::endl;
@@ -2420,7 +1607,12 @@ void glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, cons
 	c->count = count;
 	c->transpose = transpose;
 	c->value = value;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniformMatrix4fv, (void *)c, sizeof(gl_glUniformMatrix4fv_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniformMatrix4fv, (void *)c, sizeof(gl_glUniformMatrix4fv_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glUniformMatrix4fv, (void *)c, sizeof(gl_glUniformMatrix4fv_t));
 }
 void glValidateProgram(GLuint program) {
 	std::cout << __func__ << std::endl;
@@ -2450,21 +1642,36 @@ void glVertexAttrib4f(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w) 
 	c->y = y;
 	c->z = z;
 	c->w = w;
-	send_data((unsigned char)GL_Server_Command::GLSC_glVertexAttrib4f, (void *)c, sizeof(gl_glVertexAttrib4f_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glVertexAttrib4f, (void *)c, sizeof(gl_glVertexAttrib4f_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glVertexAttrib4f, (void *)c, sizeof(gl_glVertexAttrib4f_t));
 }
 void glVertexAttrib4fv(GLuint index, const GLfloat *v) {
 	GL_SET_COMMAND(c, glVertexAttrib4fv);
 
 	c->index = index;
 	c->v = v;
-	send_data((unsigned char)GL_Server_Command::GLSC_glVertexAttrib4fv, (void *)c, sizeof(gl_glVertexAttrib4fv_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glVertexAttrib4fv, (void *)c, sizeof(gl_glVertexAttrib4fv_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glVertexAttrib4fv, (void *)c, sizeof(gl_glVertexAttrib4fv_t));
 }
 //
 void glReadBuffer(GLenum src) {
 	GL_SET_COMMAND(c, glReadBuffer);
 
 	c->src = src;
-	send_data((unsigned char)GL_Server_Command::GLSC_glReadBuffer, (void *)c, sizeof(gl_glReadBuffer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glReadBuffer, (void *)c, sizeof(gl_glReadBuffer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glReadBuffer, (void *)c, sizeof(gl_glReadBuffer_t));
 }
 void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void *indices) {
 	std::cout << __func__ << std::endl;
@@ -2484,7 +1691,12 @@ void glTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
 	c->format = format;
 	c->type = type;
 	c->pixels = pixels;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTexSubImage3D, (void *)c, sizeof(gl_glTexSubImage3D_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTexSubImage3D, (void *)c, sizeof(gl_glTexSubImage3D_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glTexSubImage3D, (void *)c, sizeof(gl_glTexSubImage3D_t));
 }
 void glCopyTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height) {
 	std::cout << __func__ << std::endl;
@@ -2530,7 +1742,12 @@ void glDrawBuffers(GLsizei n, const GLenum *bufs) {
 
 	c->n = n;
 	c->bufs = bufs;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDrawBuffers, (void *)c, sizeof(gl_glDrawBuffers_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDrawBuffers, (void *)c, sizeof(gl_glDrawBuffers_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDrawBuffers, (void *)c, sizeof(gl_glDrawBuffers_t));
 }
 void glUniformMatrix2x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
 	std::cout << __func__ << std::endl;
@@ -2563,7 +1780,12 @@ void glBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint
 	c->dstY1 = dstY1;
 	c->mask = mask;
 	c->filter = filter;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBlitFramebuffer, (void *)c, sizeof(gl_glBlitFramebuffer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBlitFramebuffer, (void *)c, sizeof(gl_glBlitFramebuffer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBlitFramebuffer, (void *)c, sizeof(gl_glBlitFramebuffer_t));
 }
 void glRenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) {
 	GL_SET_COMMAND(c, glRenderbufferStorageMultisample);
@@ -2573,7 +1795,12 @@ void glRenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum int
 	c->internalformat = internalformat;
 	c->width = width;
 	c->height = height;
-	send_data((unsigned char)GL_Server_Command::GLSC_glRenderbufferStorageMultisample, (void *)c, sizeof(gl_glRenderbufferStorageMultisample_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glRenderbufferStorageMultisample, (void *)c, sizeof(gl_glRenderbufferStorageMultisample_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glRenderbufferStorageMultisample, (void *)c, sizeof(gl_glRenderbufferStorageMultisample_t));
 }
 void glFramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer) {
 	GL_SET_COMMAND(c, glFramebufferTextureLayer);
@@ -2583,7 +1810,12 @@ void glFramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture,
 	c->texture = texture;
 	c->level = level;
 	c->layer = layer;
-	send_data((unsigned char)GL_Server_Command::GLSC_glFramebufferTextureLayer, (void *)c, sizeof(gl_glFramebufferTextureLayer_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glFramebufferTextureLayer, (void *)c, sizeof(gl_glFramebufferTextureLayer_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glFramebufferTextureLayer, (void *)c, sizeof(gl_glFramebufferTextureLayer_t));
 }
 void *glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access) {
 	std::cout << __func__ << std::endl;
@@ -2596,7 +1828,12 @@ void glDeleteVertexArrays(GLsizei n, const GLuint *arrays) {
 
 	c->n = n;
 	c->arrays = arrays;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDeleteVertexArrays, (void *)c, sizeof(gl_glDeleteVertexArrays_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDeleteVertexArrays, (void *)c, sizeof(gl_glDeleteVertexArrays_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDeleteVertexArrays, (void *)c, sizeof(gl_glDeleteVertexArrays_t));
 }
 GLboolean glIsVertexArray(GLuint array) {
 	return 0;
@@ -2608,12 +1845,21 @@ void glBeginTransformFeedback(GLenum primitiveMode) {
 	GL_SET_COMMAND(c, glBeginTransformFeedback);
 
 	c->primitiveMode = primitiveMode;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBeginTransformFeedback, (void *)c, sizeof(gl_glBeginTransformFeedback_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBeginTransformFeedback, (void *)c, sizeof(gl_glBeginTransformFeedback_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glBeginTransformFeedback, (void *)c, sizeof(gl_glBeginTransformFeedback_t));
 }
 void glEndTransformFeedback(void) {
 	GL_SET_COMMAND(c, glEndTransformFeedback);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glEndTransformFeedback, (void *)c, sizeof(gl_glEndTransformFeedback_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 
-	send_data((unsigned char)GL_Server_Command::GLSC_glEndTransformFeedback, (void *)c, sizeof(gl_glEndTransformFeedback_t));
+	// send_data((unsigned char)GL_Server_Command::GLSC_glEndTransformFeedback, (void *)c, sizeof(gl_glEndTransformFeedback_t));
 }
 void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
 	std::cout << __func__ << std::endl;
@@ -2625,7 +1871,10 @@ void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
 	c->index = index;
 	c->buffer = buffer;
 	// std::cout << target << "\t" << index << "\t" << buffer << std::endl;
-	send_data((unsigned char)GL_Server_Command::GLSC_glBindBufferBase, (void *)c, sizeof(gl_glBindBufferBase_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glBindBufferBase, (void *)c, sizeof(gl_glBindBufferBase_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glTransformFeedbackVaryings(GLuint program, GLsizei count, const GLchar *const *varyings, GLenum bufferMode) {
 	GL_SET_COMMAND(c, glTransformFeedbackVaryings);
@@ -2634,7 +1883,12 @@ void glTransformFeedbackVaryings(GLuint program, GLsizei count, const GLchar *co
 	c->count = count;
 	c->varyings = varyings;
 	c->bufferMode = bufferMode;
-	send_data((unsigned char)GL_Server_Command::GLSC_glTransformFeedbackVaryings, (void *)c, sizeof(gl_glTransformFeedbackVaryings_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glTransformFeedbackVaryings, (void *)c, sizeof(gl_glTransformFeedbackVaryings_t), true);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glTransformFeedbackVaryings, (void *)c, sizeof(gl_glTransformFeedbackVaryings_t));
 }
 void glGetTransformFeedbackVarying(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLsizei *size, GLenum *type, GLchar *name) {
 	std::cout << __func__ << std::endl;
@@ -2672,7 +1926,12 @@ void glUniform1ui(GLint location, GLuint v0) {
 
 	c->location = location;
 	c->v0 = v0;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniform1ui, (void *)c, sizeof(gl_glUniform1ui_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniform1ui, (void *)c, sizeof(gl_glUniform1ui_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glUniform1ui, (void *)c, sizeof(gl_glUniform1ui_t));
 }
 void glUniform2ui(GLint location, GLuint v0, GLuint v1) {
 	std::cout << __func__ << std::endl;
@@ -2707,7 +1966,12 @@ void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value) {
 	c->buffer = buffer;
 	c->drawbuffer = drawbuffer;
 	c->value = value;
-	send_data((unsigned char)GL_Server_Command::GLSC_glClearBufferfv, (void *)c, sizeof(gl_glClearBufferfv_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glClearBufferfv, (void *)c, sizeof(gl_glClearBufferfv_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glClearBufferfv, (void *)c, sizeof(gl_glClearBufferfv_t));
 }
 void glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
 	std::cout << __func__ << std::endl;
@@ -2717,8 +1981,17 @@ const GLubyte *glGetStringi(GLenum name, GLuint index) {
 
 	c->name = name;
 	c->index = index;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t), false);
+
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetAttribLocation, (void *)c, sizeof(gl_glGetAttribLocation_t), true);
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t), true);
 	std::string ret = result.to_string();
+
 	// const GLubyte *ret = reinterpret_cast<const GLubyte *>(send_data((unsigned char) GL_Server_Command::GLSC_glGetStringi, (void *)c, sizeof(gl_glGetStringi_t)));
 	// std::cout << ret.c_str() << std::endl;
 	return reinterpret_cast<const GLubyte *>(ret.c_str());
@@ -2737,7 +2010,14 @@ GLuint glGetUniformBlockIndex(GLuint program, const GLchar *uniformBlockName) {
 
 	c->program = program;
 	c->name = uniformBlockName;
-	zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetUniformBlockIndex, (void *)c, sizeof(gl_glGetUniformBlockIndex_t), true);
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glGetUniformBlockIndex, (void *)c, sizeof(gl_glGetUniformBlockIndex_t), true);
+
+	ZMQServer *zmq_server = ZMQServer::get_instance();
+	send_buffer();
+	zmq::message_t result;
+	zmq_server->socket.recv(result, zmq::recv_flags::none);
+
+	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetUniformBlockIndex, (void *)c, sizeof(gl_glGetUniformBlockIndex_t), true);
 	GLuint *ret = (GLuint *)result.data();
 	return (GLuint)*ret;
 }
@@ -2751,7 +2031,13 @@ void glUniformBlockBinding(GLuint program, GLuint uniformBlockIndex, GLuint unif
 	c->program = program;
 	c->uniformBlockIndex = uniformBlockIndex;
 	c->uniformBlockBinding = uniformBlockBinding;
-	send_data((unsigned char)GL_Server_Command::GLSC_glUniformBlockBinding, (void *)c, sizeof(gl_glUniformBlockBinding_t));
+
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glUniformBlockBinding, (void *)c, sizeof(gl_glUniformBlockBinding_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glUniformBlockBinding, (void *)c, sizeof(gl_glUniformBlockBinding_t));
 }
 void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
 	GL_SET_COMMAND(c, glDrawArraysInstanced);
@@ -2760,7 +2046,12 @@ void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei inst
 	c->first = first;
 	c->count = count;
 	c->instancecount = instancecount;
-	send_data((unsigned char)GL_Server_Command::GLSC_glDrawArraysInstanced, (void *)c, sizeof(gl_glDrawArraysInstanced_t));
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glDrawArraysInstanced, (void *)c, sizeof(gl_glDrawArraysInstanced_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
+
+	// send_data((unsigned char)GL_Server_Command::GLSC_glDrawArraysInstanced, (void *)c, sizeof(gl_glDrawArraysInstanced_t));
 }
 void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount) {
 	std::cout << __func__ << std::endl;
@@ -2831,7 +2122,11 @@ void glVertexAttribDivisor(GLuint index, GLuint divisor) {
 
 	c->index = index;
 	c->divisor = divisor;
-	send_data((unsigned char)GL_Server_Command::GLSC_glVertexAttribDivisor, (void *)c, sizeof(gl_glVertexAttribDivisor_t));
+
+	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_glVertexAttribDivisor, (void *)c, sizeof(gl_glVertexAttribDivisor_t), false);
+#if !FRAME_BUFFER_ENABLE
+	send_buffer();
+#endif
 }
 void glBindTransformFeedback(GLenum target, GLuint id) {
 	std::cout << __func__ << std::endl;
