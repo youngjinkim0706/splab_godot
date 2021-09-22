@@ -18,7 +18,7 @@
 #define SEQUENCE_DEDUP_ENABLE 1
 #define COMMAND_DEDUP_ENABLE 1
 #define ASYNC_BUFFER_BINDING 1
-#define CACHE_ENTRY_SIZE 500
+#define CACHE_ENTRY_SIZE MAX_CACHE_ENTRY
 
 #define GL_SET_COMMAND(PTR, FUNCNAME)                                                \
 	gl_##FUNCNAME##_t *PTR = (gl_##FUNCNAME##_t *)malloc(sizeof(gl_##FUNCNAME##_t)); \
