@@ -1,10 +1,5 @@
 #include "gl_commands.h"
 
-// std::unordered_map<cache_key, std::size_t> data_cache;
-// lru11::Cache<cache_key, std::size_t> data_cache("data_cache", MAX_CACHE_ENTRY, 0);
-// // std::unordered_map<cache_key, std::size_t> more_data_cache;
-// lru11::Cache<cache_key, std::size_t> more_data_cache("more_data_cache", MAX_CACHE_ENTRY, 0);
-
 uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei height) {
 	uint32_t pixelbytes, linebytes, datasize;
 
@@ -54,7 +49,18 @@ uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei
 
 void send_buffer() {
 	ZMQServer *zmq_server = ZMQServer::get_instance();
+// End of FMB 시간
+#if LATENCY_EXPERIMENTS
+	// 여기서 FMB 시간 최종 계산
+	// send 이후에 측정하면 전송되는 시간이 포함되므로 여기서 측정
+	// 만약 background로 send 한다면 send 이후에 넣어도 무방
+#endif
 	frame_message_buffer.send(zmq_server->socket);
+	
+// 출력 및 messaging, dedup, FMB 시간 초기화
+#if LATENCY_EXPERIMENTS
+	// 여기서 시간 출력하고 messaging, dedup, FMB 시간 누적한 변수 초기화
+#endif
 }
 
 std::bitset<16> create_cmd_field(std::bitset<14> cmd_bit, std::bitset<2> dedup_bit) {
@@ -90,9 +96,11 @@ bool individual_command_deduplication(std::string message, void *locator) {
 // 사실 이 함수는 메시지 생성 부분과 보내는 부분을 나눠야하지만, 매우 귀찮아서 하나로 뭉쳐놨음.
 // 분리하고자 하면 switch 문 아래부터 분리하면 됨
 std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non_pointer_param_size, bool has_pointer_param) {
+// Start of 메세지 생성 시간 측정	
+#if LATENCY_EXPERIMENTS
+    // 여기에 시간 측정 코드 삽입
+#endif	
 	std::string message;
-	// create cmd field
-
 	message.resize(CMD_FIELD_SIZE + non_pointer_param_size);
 	memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE), non_pointer_param, non_pointer_param_size);
 	if (has_pointer_param) {
@@ -293,7 +301,15 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 	std::bitset<2> dedup_bit(0);
 	std::bitset<16> cmd_field = create_cmd_field(cmd_bit, dedup_bit);
 	memcpy((void *)message.data(), &cmd_field, CMD_FIELD_SIZE); //copy 2bytes
+// End of 메세지 생성 시간 측정	
+#if LATENCY_EXPERIMENTS
+    // 여기에 시간 누적 코드 삽입
+#endif	
 
+// Start of dedup 시간 측정	
+#if LATENCY_EXPERIMENTS
+    // 여기에 시간 측정 코드 삽입
+#endif
 	std::size_t hashed_message = std::hash<std::string>{}(message);
 
 #if SEQUENCE_DEDUP_ENABLE
@@ -322,7 +338,16 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 		}
 	}
 #endif
-	// std::cout << current_sequence_number << "\t" << cmd << "\t" << dedup_bit << std::endl;
+// End of dedup 시간 측정	
+#if LATENCY_EXPERIMENTS
+    // 여기에 시간 누적 코드 삽입
+#endif
+
+// Start of FMB Buffer 시간 측정, 맨 처음 command가 FMB에 들어가서 전송될 때 까지 시간 누적, 이 시간에는 메시징, 디듑 시간이 누적되어있음
+#if LATENCY_EXPERIMENTS
+	if(current_sequence_number == 0)
+		// 여기에 시간 코드 삽입  
+#endif
 
 	if (dedup_bit == 2) {
 		frame_message_buffer.push_back(zmq::message_t());
