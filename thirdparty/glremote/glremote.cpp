@@ -352,7 +352,11 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 
 // Start of FMB Buffer 시간 측정, 맨 처음 command가 FMB에 들어가서 전송될 때 까지 시간 누적, 이 시간에는 메시징, 디듑 시간이 누적되어있음
 #if LATENCY_EXPERIMENTS
+<<<<<<< HEAD
 	// if(current_sequence_number == 0)
+=======
+	if(current_sequence_number == 0)
+>>>>>>> fabe7d56f11ff5093c85275fd4ce32b8f0725f71
 		// 여기에 시간 코드 삽입  
 #endif
 
