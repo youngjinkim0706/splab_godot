@@ -1,5 +1,7 @@
 #include "gl_commands.h"
 
+size_t fc_cache_size = 0;
+size_t fmb_size = 0;
 uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei height) {
 	uint32_t pixelbytes, linebytes, datasize;
 
@@ -48,15 +50,11 @@ uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei
 }
 
 void send_buffer() {
-#if LATENCY_EXPERIMENTS
-	auto current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	std::cout << "LATENCY_DEDUP_END:" << current_tiem << std::endl;
-#endif
 	ZMQServer *zmq_server = ZMQServer::get_instance();
-#if LATENCY_EXPERIMENTS
-	current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	std::cout << "LATENCY_SEND_START:" << current_tiem << std::endl;
-#endif
+	// #if LATENCY_EXPERIMENTS
+	// 	current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	// 	std::cout << "LATENCY_SEND_START:" << current_tiem << std::endl;
+	// #endif
 	frame_message_buffer.send(zmq_server->socket);
 }
 
@@ -310,7 +308,7 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 	std::bitset<2> dedup_bit(0);
 	std::bitset<16> cmd_field = create_cmd_field(cmd_bit, dedup_bit);
 	memcpy((void *)message.data(), &cmd_field, CMD_FIELD_SIZE); //copy 2bytes
-
+	fmb_size += message.size();
 	std::size_t hashed_message = std::hash<std::string>{}(message);
 
 #if SEQUENCE_DEDUP_ENABLE
@@ -435,6 +433,10 @@ void glSwapBuffer() {
 	gl_command_t *c = (gl_command_t *)malloc(sizeof(gl_command_t));
 	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_bufferSwap, (void *)c, sizeof(gl_glSwapBuffer_t), false);
 
+#if LATENCY_EXPERIMENTS
+	auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	std::cout << "LATENCY_DEDUP_END:" << current_time << "\tfmb size:" << fmb_size << std::endl;
+#endif
 	send_buffer();
 	zmq::message_t result;
 	ZMQServer *zmq_server = ZMQServer::get_instance();
@@ -450,6 +452,7 @@ void glSwapBuffer() {
 #endif
 
 	current_sequence_number = 0;
+	fmb_size = 0;
 }
 GLuint glCreateShader(GLenum type) {
 	GL_SET_COMMAND(c, glCreateShader);
