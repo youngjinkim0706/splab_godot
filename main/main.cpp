@@ -2110,7 +2110,7 @@ bool Main::iteration() {
 	Engine::get_singleton()->_in_physics = true;
 
 	auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	std::cout << "PHYSICS_START:" << current_time << std::endl;
+	std::cout << "LATENCY_PHYSICS_START:" << current_time << std::endl;
 	for (int iters = 0; iters < advance.physics_steps; ++iters) {
 
 		uint64_t physics_begin = OS::get_singleton()->get_ticks_usec();
