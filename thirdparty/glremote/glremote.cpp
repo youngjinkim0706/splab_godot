@@ -51,10 +51,6 @@ uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei
 
 void send_buffer() {
 	ZMQServer *zmq_server = ZMQServer::get_instance();
-	// #if LATENCY_EXPERIMENTS
-	// 	current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	// 	std::cout << "LATENCY_SEND_START:" << current_tiem << std::endl;
-	// #endif
 	frame_message_buffer.send(zmq_server->socket);
 }
 
@@ -94,11 +90,11 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 // Start of 메세지 생성 시간 측정
 #if LATENCY_EXPERIMENTS || ASYNC_BUFFER_EXPERIMENTS
 	// 여기에 시간 측정 코드 삽입
-	if (current_sequence_number == 0) {
-		first_frame_time = std::chrono::steady_clock::now();
-		auto current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-		std::cout << "LATENCY_DEDUP_START:" << current_tiem << std::endl;
-	}
+	// if (current_sequence_number == 0) {
+	// 	first_frame_time = std::chrono::steady_clock::now();
+	// 	auto current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	// 	std::cout << "LATENCY_DEDUP_START:" << current_tiem << std::endl;
+	// }
 #endif
 
 	/*
@@ -337,6 +333,12 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 		}
 	}
 #endif
+#if ASYNC_BUFFER_EXPERIMENTS
+	if (current_sequence_number == 0) {
+		auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+		std::cout << "LATENCY_FMB_START:" << current_time << std::endl;
+	}
+#endif
 	if (dedup_bit == 2) {
 		frame_message_buffer.push_back(zmq::message_t());
 	} else {
@@ -433,10 +435,11 @@ void glSwapBuffer() {
 	gl_command_t *c = (gl_command_t *)malloc(sizeof(gl_command_t));
 	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_bufferSwap, (void *)c, sizeof(gl_glSwapBuffer_t), false);
 
-#if LATENCY_EXPERIMENTS
-	auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	std::cout << "LATENCY_DEDUP_END:" << current_time << "\tfmb size:" << fmb_size << std::endl;
-#endif
+	// #if LATENCY_EXPERIMENTS
+	// 	auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	// 	std::cout << "LATENCY_DEDUP_END:" << current_time << "\tfmb size:" << fmb_size << std::endl;
+	// #endif
+
 	send_buffer();
 	zmq::message_t result;
 	ZMQServer *zmq_server = ZMQServer::get_instance();
@@ -445,11 +448,11 @@ void glSwapBuffer() {
 	// init variables
 	prev_frame_hash_list.swap(current_frame_hash_list);
 	std::vector<std::size_t>().swap(current_frame_hash_list);
-#if ASYNC_BUFFER_EXPERIMENTS
-	auto last_frame_time = std::chrono::steady_clock::now();
-	std::cout << "ABB: " << std::chrono::duration_cast<std::chrono::microseconds>(last_frame_time - first_frame_time).count() << std::endl;
-	// first_frame_time = std::chrono::steady_clock::now();
-#endif
+	// #if ASYNC_BUFFER_EXPERIMENTS
+	// 	auto last_frame_time = std::chrono::steady_clock::now();
+	// 	std::cout << "ABB: " << std::chrono::duration_cast<std::chrono::microseconds>(last_frame_time - first_frame_time).count() << std::endl;
+	// 	// first_frame_time = std::chrono::steady_clock::now();
+	// #endif
 
 	current_sequence_number = 0;
 	fmb_size = 0;
@@ -474,8 +477,6 @@ GLenum glGetError(void) {
 	ZMQServer *zmq_server = ZMQServer::get_instance();
 	zmq_server->socket.recv(result, zmq::recv_flags::none);
 	GLenum *ret = (GLenum *)result.data();
-	// zmq::message_t result = send_data((unsigned char)GL_Server_Command::GLSC_glGetError, (void *)c, sizeof(gl_glGetError_t), true);
-	// GLenum *ret = (GLenum *)result.data();
 	return static_cast<GLenum>(*ret);
 }
 
