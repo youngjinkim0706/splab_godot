@@ -2,6 +2,7 @@
 
 size_t fc_cache_size = 0;
 size_t fmb_size = 0;
+int frame_number = 0;
 uint32_t calc_pixel_data_size(GLenum type, GLenum format, GLsizei width, GLsizei height) {
 	uint32_t pixelbytes, linebytes, datasize;
 
@@ -336,7 +337,7 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 #if ASYNC_BUFFER_EXPERIMENTS
 	if (current_sequence_number == 0) {
 		auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-		std::cout << "LATENCY_FMB_START:" << current_time << std::endl;
+		std::cout << "LATENCY_FMB_START:" << current_time << "\tframe_number:" << frame_number << std::endl;
 	}
 #endif
 	if (dedup_bit == 2) {
@@ -456,6 +457,7 @@ void glSwapBuffer() {
 
 	current_sequence_number = 0;
 	fmb_size = 0;
+	frame_number++;
 }
 GLuint glCreateShader(GLenum type) {
 	GL_SET_COMMAND(c, glCreateShader);
