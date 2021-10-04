@@ -91,11 +91,11 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 // Start of 메세지 생성 시간 측정
 #if LATENCY_EXPERIMENTS || ASYNC_BUFFER_EXPERIMENTS
 	// 여기에 시간 측정 코드 삽입
-	// if (current_sequence_number == 0) {
-	// 	first_frame_time = std::chrono::steady_clock::now();
-	// 	auto current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	// 	std::cout << "LATENCY_DEDUP_START:" << current_tiem << std::endl;
-	// }
+	if (current_sequence_number == 0) {
+		auto first_frame_time = std::chrono::steady_clock::now();
+		auto current_tiem = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+		std::cout << "LATENCY_DEDUP_START:" << current_tiem << "\tframe_number:" << frame_number << std::endl;
+	}
 #endif
 
 	/*
@@ -436,10 +436,10 @@ void glSwapBuffer() {
 	gl_command_t *c = (gl_command_t *)malloc(sizeof(gl_command_t));
 	std::string message = create_message((unsigned int)GL_Server_Command::GLSC_bufferSwap, (void *)c, sizeof(gl_glSwapBuffer_t), false);
 
-	// #if LATENCY_EXPERIMENTS
-	// 	auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	// 	std::cout << "LATENCY_DEDUP_END:" << current_time << "\tfmb size:" << fmb_size << std::endl;
-	// #endif
+#if LATENCY_EXPERIMENTS
+	auto current_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	std::cout << "LATENCY_DEDUP_END:" << current_time << "\tframe_nubmer:" << frame_number << std::endl;
+#endif
 
 	send_buffer();
 	zmq::message_t result;
