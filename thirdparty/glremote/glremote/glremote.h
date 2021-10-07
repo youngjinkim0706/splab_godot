@@ -21,7 +21,7 @@
 #define LATENCY_EXPERIMENTS 1 // LATENCY 측정을 위해 추가 됨
 #define ASYNC_BUFFER_EXPERIMENTS 0 // ABB FRAME 실험
 
-#define CACHE_ENTRY_SIZE MAX_CACHE_ENTRY
+#define CACHE_ENTRY_SIZE 1000
 
 #define GL_SET_COMMAND(PTR, FUNCNAME)                                                \
 	gl_##FUNCNAME##_t *PTR = (gl_##FUNCNAME##_t *)malloc(sizeof(gl_##FUNCNAME##_t)); \
