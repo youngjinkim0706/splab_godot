@@ -151,12 +151,14 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 			}
 			case (unsigned int)GL_Server_Command::GLSC_glDeleteFramebuffers: {
 				size_t param_size = reinterpret_cast<gl_glDeleteFramebuffers_t *>(non_pointer_param)->n * sizeof(GLuint);
+
 				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
 				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteFramebuffers_t *>(non_pointer_param)->framebuffers), param_size);
 				break;
 			}
 			case (unsigned int)GL_Server_Command::GLSC_glDeleteRenderbuffers: {
 				size_t param_size = reinterpret_cast<gl_glDeleteRenderbuffers_t *>(non_pointer_param)->n * sizeof(GLuint);
+
 				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
 				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteRenderbuffers_t *>(non_pointer_param)->renderbuffers), param_size);
 				break;
@@ -169,12 +171,14 @@ std::string create_message(unsigned int cmd, void *non_pointer_param, size_t non
 			}
 			case (unsigned int)GL_Server_Command::GLSC_glDeleteVertexArrays: {
 				size_t param_size = reinterpret_cast<gl_glDeleteVertexArrays_t *>(non_pointer_param)->n * sizeof(GLuint);
+
 				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
 				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteVertexArrays_t *>(non_pointer_param)->arrays), param_size);
 				break;
 			}
 			case (unsigned int)GL_Server_Command::GLSC_glDeleteBuffers: {
 				size_t param_size = reinterpret_cast<gl_glDeleteBuffers_t *>(non_pointer_param)->n * sizeof(GLuint);
+
 				message.resize(CMD_FIELD_SIZE + non_pointer_param_size + param_size);
 				memcpy((void *)((char *)message.data() + CMD_FIELD_SIZE + non_pointer_param_size), (void *)(reinterpret_cast<gl_glDeleteBuffers_t *>(non_pointer_param)->buffers), param_size);
 				break;

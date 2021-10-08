@@ -280,6 +280,7 @@ Error OS_X11::initialize(const VideoMode &p_desired, int p_video_driver, int p_a
 				}
 			}
 		}
+		print_line(itos(use_prime)); // yjkim
 
 		if (use_prime == -1) {
 			print_verbose("Detecting GPUs, set DRI_PRIME in the environment to override GPU detection logic.");
