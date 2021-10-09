@@ -1316,9 +1316,6 @@ const GLubyte *glGetString(GLenum name) {
 	zmq::message_t result;
 	zmq_server->socket.recv(result, zmq::recv_flags::none);
 	std::string ret = result.to_string();
-
-	std::cout << ret << std::endl;
-
 	return reinterpret_cast<const GLubyte *>(ret.c_str());
 }
 void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat *params) {
