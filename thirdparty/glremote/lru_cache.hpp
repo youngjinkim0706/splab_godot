@@ -38,11 +38,11 @@
 #include <thread>
 #include <unordered_map>
 #ifndef MAX_BUCKET_SIZE
-#define MAX_BUCKET_SIZE 976369 // /usr/include/c++/9/ext/pb_ds/detail/resize_policy/hash_prime_size_policy_imp.hpp
+#define MAX_BUCKET_SIZE 1741 // /usr/include/c++/9/ext/pb_ds/detail/resize_policy/hash_prime_size_policy_imp.hpp
 #endif
 
 #ifndef MAX_CACHE_ENTRY
-#define MAX_CACHE_ENTRY 976369
+#define MAX_CACHE_ENTRY 1741
 #endif
 
 namespace lru11 {
